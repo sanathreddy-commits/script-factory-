@@ -66,6 +66,13 @@
     <input type="hidden" name="lang" value="{{ L.id }}">
     <button class="btn warn" style="font-weight:600">🔄 Issue New Codes to All</button>
   </form>
+  <form method="post" action="/team/people/delete_all" class="inline" onsubmit="return confirm('⚠️ ARE YOU SURE?\nThis will permanently DELETE all participant agents in this view.\nUnfinished scripts will be returned to the library pool.\n\nTeam Lead and Admin accounts will NOT be deleted.')">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="hidden" name="lang" value="{{ L.id }}">
+    <button class="btn bad" style="font-weight:600; background:rgba(239,68,68,0.15); color:#ef4444; border:1px solid #ef4444" title="Delete all participant agents in this view">
+      🗑️ Delete All Agents
+    </button>
+  </form>
 </div>
 
 <div class="grid g2" id="add-forms" style="display:none; margin-bottom:1.5rem">
@@ -180,6 +187,12 @@
               <form method="post" action="/team/people/{{ r.id }}/showcode" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn sm">Code</button></form>
               <form method="post" action="/team/people/{{ r.id }}/reissue" class="inline" onsubmit="return confirm('Issue a new code for {{ r.name }}? The old code will stop working immediately.')"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn sm">Reissue</button></form>
               <form method="post" action="/team/people/{{ r.id }}/{{ 'revoke' if r.active else 'activate' }}" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn sm {{ 'bad' if r.active }}">{{ 'Revoke' if r.active else 'Activate' }}</button></form>
+              {% if r.role != 'admin' and (user.role == 'admin' or r.role == 'participant') %}
+              <form method="post" action="/team/people/{{ r.id }}/delete" class="inline" onsubmit="return confirm('⚠️ Permanently delete {{ r.name }}?\nThis will remove the person and return any uncompleted scripts to the library.')">
+                <input type="hidden" name="csrf" value="{{ csrf }}">
+                <button class="btn sm bad" style="background:#dc2626; color:#fff; border-color:#dc2626" title="Delete {{ r.name }}">🗑️ Delete</button>
+              </form>
+              {% endif %}
             </div>
             {% endif %}
           </td>

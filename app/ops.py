@@ -115,6 +115,64 @@ def update_user(c, actor, uid, name, phone="", email="", role=None, language_id=
     db.audit(c, actor, "update_user", f"id={uid} name={name}")
 
 
+def delete_user(c, actor, uid):
+    u = c.execute("SELECT * FROM users WHERE id=?", (uid,)).fetchone()
+    if not u:
+        raise OpsError("user not found")
+    if u["role"] == "admin":
+        raise OpsError("cannot delete admin account")
+    if actor is not None and actor["id"] == uid:
+        raise OpsError("cannot delete your own account while logged in")
+    if actor is not None and actor["role"] != "admin":
+        need_manage(actor, u["language_id"])
+        if u["role"] in ("lead", "admin"):
+            raise PermissionError("team lead can only delete participants")
+    
+    now = time.time()
+    # 1. Release any unconfirmed assignments assigned to this user
+    c.execute("UPDATE assignments SET status='RELEASED', note='agent deleted', updated_at=? WHERE (ua=? OR ub=?) AND status IN ('ASSIGNED','IN_SESSION')", (now, uid, uid))
+    
+    # 2. Clean up pairs involving this user
+    user_pairs = c.execute("SELECT id FROM pairs WHERE a=? OR b=?", (uid, uid)).fetchall()
+    for p in user_pairs:
+        pid = p["id"]
+        c.execute("UPDATE assignments SET status='RELEASED', note='agent deleted', updated_at=? WHERE pair_id=? AND status IN ('ASSIGNED','IN_SESSION')", (now, pid))
+        conf_count = c.execute("SELECT COUNT(*) n FROM assignments WHERE pair_id=? AND status='CONFIRMED'", (pid,)).fetchone()["n"]
+        if conf_count == 0:
+            c.execute("DELETE FROM pairs WHERE id=?", (pid,))
+        else:
+            c.execute("UPDATE pairs SET status='DROPPED', dropped_at=?, note='agent deleted' WHERE id=?", (now, pid))
+            
+    # 3. Clean up sessions, device requests, issues
+    c.execute("DELETE FROM sessions WHERE user_id=?", (uid,))
+    c.execute("DELETE FROM device_requests WHERE user_id=?", (uid,))
+    c.execute("DELETE FROM issues WHERE user_id=?", (uid,))
+    
+    # 4. Delete the user
+    c.execute("DELETE FROM users WHERE id=?", (uid,))
+    db.audit(c, actor, "delete_user", f"id={uid} name={u['name']} role={u['role']}")
+    return True
+
+
+def delete_all_agents(c, actor, language_id="all"):
+    if actor is not None and actor["role"] != "admin":
+        if language_id == "all":
+            language_id = actor["language_id"]
+        need_manage(actor, language_id)
+    
+    if language_id == "all":
+        rows = c.execute("SELECT id FROM users WHERE role='participant'").fetchall()
+    else:
+        rows = c.execute("SELECT id FROM users WHERE role='participant' AND language_id=?", (int(language_id),)).fetchall()
+        
+    count = 0
+    for r in rows:
+        delete_user(c, actor, r["id"])
+        count += 1
+    db.audit(c, actor, "delete_all_agents", f"lang={language_id} count={count}")
+    return count
+
+
 def _admin_only(actor):
     if actor is not None and actor["role"] != "admin":
         raise PermissionError("admin only")

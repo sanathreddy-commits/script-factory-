@@ -129,6 +129,10 @@ def current(request):
 def gate(request, *roles, consent=True):
     u, csrf = current(request)
     if not u:
+        if "admin" in roles:
+            raise Redirect("/admin/login")
+        if "lead" in roles:
+            raise Redirect("/lead/login")
         raise Redirect("/")
     if roles and u["role"] not in roles:
         raise PermissionError("Your role cannot open this page.")
@@ -254,6 +258,7 @@ def ip(request):
 
 # ---------------------------------------------------------------- login
 @app.get("/")
+@app.get("/login")
 async def index_page(request: Request):
     tok = request.cookies.get("sf_session")
     if tok:
@@ -263,16 +268,29 @@ async def index_page(request: Request):
                 if u["role"] == "admin": return RedirectResponse("/admin", 303)
                 if u["role"] == "lead": return RedirectResponse("/team", 303)
                 return RedirectResponse("/me", 303)
-    return render(request, "index.html", None)
+    return render(request, "login.html", None, err=request.query_params.get("e", ""), role="agent", code=request.query_params.get("code", ""))
 
-@app.get("/login")
-async def login_redirect():
-    return RedirectResponse("/", 303)
+@app.post("/")
+@app.post("/login")
+async def index_login_post(request: Request):
+    return await login_post(request, role="agent")
+
+@app.get("/roles")
+async def roles_page(request: Request):
+    return render(request, "index.html", None)
 
 @app.get("/{role}/login")
 async def login_page(request: Request, role: str):
     if role not in ("admin", "lead", "agent"):
         raise HTTPException(404, "Not found")
+    tok = request.cookies.get("sf_session")
+    if tok:
+        with db.ro() as c:
+            u = c.execute("SELECT u.* FROM users u JOIN sessions s ON s.user_id=u.id WHERE s.token=?", (tok,)).fetchone()
+            if u:
+                if u["role"] == "admin": return RedirectResponse("/admin", 303)
+                if u["role"] == "lead": return RedirectResponse("/team", 303)
+                return RedirectResponse("/me", 303)
     return render(request, "login.html", None, err=request.query_params.get("e", ""), role=role, code=request.query_params.get("code", ""))
 
 @app.post("/{role}/login")
@@ -307,7 +325,7 @@ async def login_post(request: Request, role: str):
         r.set_cookie("sf_device", device, max_age=3 * 365 * 86400, httponly=True, samesite="lax")
         return r
     
-    dest = "/" + ("admin" if role == "admin" else "team" if role == "lead" else "me")
+    dest = "/" + ("admin" if u["role"] == "admin" else "team" if u["role"] == "lead" else "me")
     r = RedirectResponse(dest, 303)
     r.set_cookie("sf_session", tok, max_age=ops.SESSION_TTL, httponly=True, samesite="lax")
     r.set_cookie("sf_device", device, max_age=3 * 365 * 86400, httponly=True, samesite="lax")
@@ -1244,6 +1262,10 @@ async def people_act(request: Request, uid: int, act: str):
         lid = row["language_id"]
         if u["role"] == "lead" and lid != u["language_id"]:
             raise PermissionError("other language")
+        if act == "delete":
+            name = row["name"]
+            ops.delete_user(c, u, uid)
+            return back(f"/team/people", m=f"Deleted {name} successfully.")
         if act == "showcode":
             code = ops.view_code(c, u, uid)
             return render(request, "code.html", u, row=row, code=code, next=f"/team/people")
@@ -1253,6 +1275,15 @@ async def people_act(request: Request, uid: int, act: str):
         if act in ("revoke", "activate"):
             ops.set_active(c, u, uid, act == "activate")
     return back(f"/team/people", m="Done.")
+
+
+@app.post("/team/people/delete_all")
+async def people_delete_all(request: Request):
+    u, f = await post(request, "lead", "admin")
+    lid = f.get("lang", "all")
+    with db.tx() as c:
+        count = ops.delete_all_agents(c, u, lid)
+    return back(f"/team/people?lang={lid}", m=f"Deleted all {count} participant agents.")
 
 
 @app.post("/team/people/reissue_all")
