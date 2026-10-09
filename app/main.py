@@ -379,76 +379,88 @@ BLOCKS = ["AM", "PM", "Eve"]
 
 @app.get("/me")
 async def me(request: Request):
-    u = gate(request, "participant")
-    with db.ro() as c:
-        S = db.S(c)
-        lid = u["language_id"] if u["language_id"] else 1
-        L = c.execute("SELECT * FROM languages WHERE id=?", (lid,)).fetchone()
-        if not L:
-            L = {"id": lid, "name": "Audio"}
-        pair = c.execute("SELECT * FROM pairs WHERE status='ACTIVE' AND (a=? OR b=?)", (u["id"], u["id"])).fetchone()
-        partner, lead = None, None
-        total_assigned = 0
-        completed_count = 0
-        pending_count = 0
-        current_script = None
-        current_index = 0
-        now = time.time()
-        
-        if pair:
-            pid = pair["b"] if pair["a"] == u["id"] else pair["a"]
-            partner = c.execute("SELECT * FROM users WHERE id=?", (pid,)).fetchone()
+    try:
+        u = gate(request, "participant")
+        with db.ro() as c:
+            S = db.S(c)
+            lid = u["language_id"] if u["language_id"] else 1
+            L = c.execute("SELECT * FROM languages WHERE id=?", (lid,)).fetchone()
+            if not L:
+                L = {"id": lid, "name": "Audio"}
+            pair = c.execute("SELECT * FROM pairs WHERE status='ACTIVE' AND (a=? OR b=?)", (u["id"], u["id"])).fetchone()
+            partner, lead = None, None
+            total_assigned = 0
+            completed_count = 0
+            pending_count = 0
+            current_script = None
+            current_index = 0
+            now = time.time()
             
-            all_assigns = c.execute(
-                "SELECT a.*, s.code, s.subdomain, s.specialisation "
-                "FROM assignments a JOIN scripts s ON s.id=a.script_id "
-                "WHERE a.pair_id=? AND a.status NOT IN ('RELEASED','ABANDONED') ORDER BY a.id ASC",
-                (pair["id"],)
-            ).fetchall()
-            
-            total_assigned = len(all_assigns)
-            completed_assigns = [a for a in all_assigns if a["status"] == "CONFIRMED"]
-            completed_count = len(completed_assigns)
-            
-            uncompleted = [a for a in all_assigns if a["status"] != "CONFIRMED"]
-            pending_count = len(uncompleted)
-            if uncompleted:
-                current_script = uncompleted[0]
-                current_index = completed_count + 1
-            else:
-                current_index = total_assigned
+            if pair:
+                pid = pair["b"] if pair["a"] == u["id"] else pair["a"]
+                partner = c.execute("SELECT * FROM users WHERE id=?", (pid,)).fetchone()
                 
-        lead = c.execute("SELECT * FROM users WHERE role='lead' AND language_id=? AND active=1 ORDER BY id LIMIT 1", (lid,)).fetchone()
-        
-        partner_wa = ""
-        if partner and partner["phone"]:
-            p_digits = "".join(filter(str.isdigit, partner["phone"] or ""))
-            if len(p_digits) == 10:
-                p_digits = "91" + p_digits
-            partner_wa = p_digits
+                all_assigns = c.execute(
+                    "SELECT a.*, s.code, s.subdomain, s.specialisation "
+                    "FROM assignments a JOIN scripts s ON s.id=a.script_id "
+                    "WHERE a.pair_id=? AND a.status NOT IN ('RELEASED','ABANDONED') ORDER BY a.id ASC",
+                    (pair["id"],)
+                ).fetchall()
+                
+                total_assigned = len(all_assigns)
+                completed_assigns = [a for a in all_assigns if a["status"] == "CONFIRMED"]
+                completed_count = len(completed_assigns)
+                
+                uncompleted = [a for a in all_assigns if a["status"] != "CONFIRMED"]
+                pending_count = len(uncompleted)
+                if uncompleted:
+                    current_script = uncompleted[0]
+                    current_index = completed_count + 1
+                else:
+                    current_index = total_assigned
+                    
+            lead = c.execute("SELECT * FROM users WHERE role='lead' AND language_id=? AND active=1 ORDER BY id LIMIT 1", (lid,)).fetchone()
             
-        p_name = partner["name"] if (partner and partner["name"]) else "partner"
-        partner_name = "partner" if p_name.lower().startswith("agent") else p_name
-        me_ready = False
-        partner_ready = False
-        if current_script:
-            w = "a" if current_script["ua"] == u["id"] else "b"
-            other = "b" if w == "a" else "a"
-            me_ready = (now - (current_script[f"ready_{w}"] or 0)) < 60
-            partner_ready = (now - (current_script[f"ready_{other}"] or 0)) < 60
-            
-        avail_set = set()
-        try:
-            raw_av = u["availability"] if "availability" in u.keys() else "[]"
-            avail_set = set(json.loads(raw_av or "[]"))
-        except Exception:
+            partner_wa = ""
+            if partner and partner["phone"]:
+                p_digits = "".join(filter(str.isdigit, partner["phone"] or ""))
+                if len(p_digits) == 10:
+                    p_digits = "91" + p_digits
+                partner_wa = p_digits
+                
+            p_name = partner["name"] if (partner and partner["name"]) else "partner"
+            partner_name = "partner" if p_name.lower().startswith("agent") else p_name
+            me_ready = False
+            partner_ready = False
+            if current_script:
+                w = "a" if current_script["ua"] == u["id"] else "b"
+                other = "b" if w == "a" else "a"
+                me_ready = (now - (current_script[f"ready_{w}"] or 0)) < 60
+                partner_ready = (now - (current_script[f"ready_{other}"] or 0)) < 60
+                
             avail_set = set()
+            try:
+                raw_av = u["availability"] if "availability" in u.keys() else "[]"
+                avail_set = set(json.loads(raw_av or "[]"))
+            except Exception:
+                avail_set = set()
 
-        return render(request, "me.html", u, L=L, pair=pair, partner=partner, partner_wa=partner_wa, lead=lead,
-                      current_script=current_script, current_index=current_index,
-                      total_assigned=total_assigned, completed_count=completed_count,
-                      pending_count=pending_count, me_ready=me_ready, partner_ready=partner_ready,
-                      partner_name=partner_name, avail=avail_set, days=DAYS, blocks=BLOCKS)
+            return render(request, "me.html", u, L=L, pair=pair, partner=partner, partner_wa=partner_wa, lead=lead,
+                          current_script=current_script, current_index=current_index,
+                          total_assigned=total_assigned, completed_count=completed_count,
+                          pending_count=pending_count, me_ready=me_ready, partner_ready=partner_ready,
+                          partner_name=partner_name, avail=avail_set, days=DAYS, blocks=BLOCKS)
+    except Redirect:
+        raise
+    except HTTPException:
+        raise
+    except PermissionError:
+        raise
+    except Exception as e:
+        import traceback
+        tb = traceback.format_exc()
+        print("ERROR IN /me:\n", tb)
+        return HTMLResponse(f"<h3>Error in /me:</h3><pre style='background:#111;color:#f87171;padding:1rem;border-radius:6px;overflow:auto'>{tb}</pre>", status_code=200)
 
 
 @app.get("/me/state")
