@@ -3,8 +3,8 @@
 {% block body %}
 <div class="pagehead">
   <div>
-    <h1>Hi {{ user.name.split()[0] }}</h1>
-    <div class="mute small">{{ L.name }} · Audio Recording Portal</div>
+    <h1>Hi {{ (user.name or 'Participant').split()[0] if (user.name and user.name.split()) else 'Participant' }}</h1>
+    <div class="mute small">{{ L.name if L else 'Audio' }} · Audio Recording Portal</div>
   </div>
 </div>
 
@@ -73,23 +73,9 @@
         {{ current_script.subdomain }}{% if current_script.specialisation %} · {{ current_script.specialisation }}{% endif %}
       </div>
 
-      <!-- Partner Readiness Live Display -->
-      <div id="partner-status-box" style="padding:.8rem 1rem; border-radius:8px; background:rgba(30,41,59,0.9); border:1px solid #3b82f6; margin-bottom:1rem">
-        <div class="row" style="align-items:center; gap:.6rem">
-          <span id="pready-dot" class="dot {{ 'on' if partner_ready else '' }}"></span>
-          <span id="pready-text" style="font-weight:600; color:#f8fafc; font-size:1rem">
-            {% if partner_ready %}✅ Partner is ready to record!{% else %}⏳ Waiting for partner to be ready...{% endif %}
-          </span>
-        </div>
-      </div>
-
-      <!-- Live Action Buttons -->
-      <div class="row" style="gap:.8rem; flex-wrap:wrap">
-        <button id="me-ready-btn" class="btn {{ '' if me_ready else 'pri' }}" type="button" style="flex:1" onclick="toggleMeReady()">
-          {{ 'Ready ✓ (Click to undo)' if me_ready else "I'm Ready" }}
-        </button>
-        <a href="/a/{{ current_script.id }}" class="btn pri big" style="flex:1; text-align:center">
-          Open Script & Record &rarr;
+      <div class="row" style="gap:.8rem; margin-top:.8rem">
+        <a href="/a/{{ current_script.id }}" class="btn pri big" style="width:100%; text-align:center; font-size:1.15rem; font-weight:700; padding:.85rem 1.2rem">
+          📖 Open Script & Start Reading &rarr;
         </a>
       </div>
     </div>
@@ -138,59 +124,17 @@
 
 {% if current_script %}
 <script>
-(function() {
-  var csrf = "{{ csrf }}";
-  var isMeReady = {{ 'true' if me_ready else 'false' }};
-
-  window.toggleMeReady = function() {
-    var fd = new FormData();
-    fd.append('csrf', csrf);
-    fd.append('action', 'toggle');
-    fetch('/me/ready', { method: 'POST', body: fd, credentials: 'same-origin' })
-      .then(r => r.json())
-      .then(data => {
-        if (data.ok) {
-          isMeReady = data.ready;
-          var btn = document.getElementById('me-ready-btn');
-          if (btn) {
-            btn.textContent = isMeReady ? 'Ready ✓ (Click to undo)' : "I'm Ready";
-            btn.classList.toggle('pri', !isMeReady);
-          }
-        }
-      });
-  };
-
-  function pollMe() {
-    fetch('/me/state', { credentials: 'same-origin' })
-      .then(r => r.json())
-      .then(s => {
-        if (!s.paired) return;
-        var dot = document.getElementById('pready-dot');
-        var txt = document.getElementById('pready-text');
-        if (dot && txt) {
-          if (s.partner_ready) {
-            dot.className = 'dot on';
-            txt.innerHTML = '✅ Partner is ready to record!';
-          } else {
-            dot.className = 'dot';
-            txt.innerHTML = '⏳ Waiting for partner to be ready...';
-          }
-        }
-        var btn = document.getElementById('me-ready-btn');
-        if (btn && s.me_ready !== isMeReady) {
-          isMeReady = s.me_ready;
-          btn.textContent = isMeReady ? 'Ready ✓ (Click to undo)' : "I'm Ready";
-          btn.classList.toggle('pri', !isMeReady);
-        }
-        // Auto reload if script finished or advanced to next script
-        if (s.completed_count !== {{ completed_count }} || (s.current_id && s.current_id !== {{ current_script.id }})) {
-          location.reload();
-        }
-      })
-      .catch(() => {});
-  }
-  setInterval(pollMe, 3000);
-})();
+// Auto reload if script completed
+setInterval(function() {
+  fetch('/me/state', { credentials: 'same-origin' })
+    .then(function(r) { return r.json(); })
+    .then(function(s) {
+      if (s && s.completed_count !== {{ completed_count }}) {
+        location.reload();
+      }
+    })
+    .catch(function() {});
+}, 8000);
 </script>
 {% endif %}
 {% endblock %}

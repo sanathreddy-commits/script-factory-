@@ -10,8 +10,9 @@ from datetime import datetime
 from urllib.parse import urlencode
 from zoneinfo import ZoneInfo
 
+import traceback
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -115,6 +116,13 @@ async def _perm(request, exc):
 @app.exception_handler(HTTPException)
 async def _http(request, exc):
     return err_page(request, f"Error {exc.status_code}", str(exc.detail), exc.status_code)
+
+
+@app.exception_handler(Exception)
+async def _general_err(request: Request, exc: Exception):
+    tb = traceback.format_exc()
+    print("UNHANDLED ERROR:\n", tb)
+    return HTMLResponse(f"<h2>Server Error</h2><pre style='background:#111;color:#f87171;padding:1rem;border-radius:6px;overflow:auto'>{tb}</pre>", status_code=500)
 
 
 # ---------------------------------------------------------------- auth plumbing
@@ -374,7 +382,10 @@ async def me(request: Request):
     u = gate(request, "participant")
     with db.ro() as c:
         S = db.S(c)
-        L = c.execute("SELECT * FROM languages WHERE id=?", (u["language_id"],)).fetchone()
+        lid = u["language_id"] if u["language_id"] else 1
+        L = c.execute("SELECT * FROM languages WHERE id=?", (lid,)).fetchone()
+        if not L:
+            L = {"id": lid, "name": "Audio"}
         pair = c.execute("SELECT * FROM pairs WHERE status='ACTIVE' AND (a=? OR b=?)", (u["id"], u["id"])).fetchone()
         partner, lead = None, None
         total_assigned = 0
@@ -407,7 +418,7 @@ async def me(request: Request):
             else:
                 current_index = total_assigned
                 
-        lead = c.execute("SELECT * FROM users WHERE role='lead' AND language_id=? AND active=1 ORDER BY id LIMIT 1", (u["language_id"],)).fetchone()
+        lead = c.execute("SELECT * FROM users WHERE role='lead' AND language_id=? AND active=1 ORDER BY id LIMIT 1", (lid,)).fetchone()
         
         partner_wa = ""
         if partner and partner["phone"]:
@@ -416,19 +427,28 @@ async def me(request: Request):
                 p_digits = "91" + p_digits
             partner_wa = p_digits
             
-        p_name = partner["name"] if partner else "partner"
+        p_name = partner["name"] if (partner and partner["name"]) else "partner"
         partner_name = "partner" if p_name.lower().startswith("agent") else p_name
+        me_ready = False
+        partner_ready = False
         if current_script:
             w = "a" if current_script["ua"] == u["id"] else "b"
             other = "b" if w == "a" else "a"
             me_ready = (now - (current_script[f"ready_{w}"] or 0)) < 60
             partner_ready = (now - (current_script[f"ready_{other}"] or 0)) < 60
             
+        avail_set = set()
+        try:
+            raw_av = u["availability"] if "availability" in u.keys() else "[]"
+            avail_set = set(json.loads(raw_av or "[]"))
+        except Exception:
+            avail_set = set()
+
         return render(request, "me.html", u, L=L, pair=pair, partner=partner, partner_wa=partner_wa, lead=lead,
                       current_script=current_script, current_index=current_index,
                       total_assigned=total_assigned, completed_count=completed_count,
                       pending_count=pending_count, me_ready=me_ready, partner_ready=partner_ready,
-                      partner_name=partner_name, avail=set(json.loads(u["availability"] or "[]")), days=DAYS, blocks=BLOCKS)
+                      partner_name=partner_name, avail=avail_set, days=DAYS, blocks=BLOCKS)
 
 
 @app.get("/me/state")
