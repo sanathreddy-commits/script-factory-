@@ -28,6 +28,10 @@ def create_language(c, actor, preset, code="", name="", target=None, quotas=None
         (code, name, target, cap_pair_h * 60, cap_person_h * 60, mode, deadline, lo, hi, clo, chi, slo, shi, names, 1, time.time())).lastrowid
     for dom, sub, *_ in T.SUBS:
         c.execute("INSERT INTO quotas VALUES(?,?,?,?)", (lid, dom, sub, quotas.get(sub, 0)))
+    try:
+        T.create_library_folders(name)
+    except Exception:
+        pass
     db.audit(c, actor if actor else "system", "create_language", f"{name} target={target}")
     return lid
 

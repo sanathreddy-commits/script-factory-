@@ -3,6 +3,48 @@ import re
 import os
 import sqlite3
 
+# Subdomain list and default quotas (9 domains * 167 = 1,503 total quota)
+SUBS = [
+    ("Healthcare", "Doctor-Patient Consultation"),
+    ("Healthcare", "Telehealth Consultation"),
+    ("Healthcare", "Health Insurance Queries"),
+    ("Healthcare", "Pharmacy Queries"),
+    ("BFSI", "Banking Services"),
+    ("BFSI", "Insurance Queries"),
+    ("BFSI", "Loan Consultation"),
+    ("BFSI", "Credit Card Queries"),
+    ("BFSI", "Investment Advice"),
+]
+PER_SUB = 167
+TOTAL_QUOTA = 1503
+
+PRESETS = {
+    "kannada": ("Kannada", "KN", 3200, 3327, 3221, 3257, 3262, 3276, "generic"),
+    "marathi": ("Marathi", "MR", 2304, 2431, 2325, 2361, 2366, 2380, "generic"),
+    "hindi": ("Hindi", "HI", 2304, 2431, 2325, 2361, 2366, 2380, "generic"),
+    "tamil": ("Tamil", "TA", 2944, 3071, 2965, 3001, 3006, 3020, "generic"),
+    "telugu": ("Telugu", "TE", 3072, 3199, 3093, 3129, 3134, 3148, "generic"),
+    "bengali": ("Bengali", "BN", 2432, 2559, 2453, 2489, 2494, 2508, "generic"),
+    "gujarati": ("Gujarati", "GU", 2688, 2815, 2709, 2745, 2750, 2764, "generic"),
+    "malayalam": ("Malayalam", "ML", 3328, 3455, 3349, 3385, 3390, 3404, "generic"),
+    "english": ("English", "EN", 65, 122, 65, 90, 97, 122, "generic"),
+}
+
+def spec_split(n=167):
+    return {
+        "General Physician": 84,
+        "Pediatrician": 17,
+        "Dermatology": 25,
+        "Dentist": 25,
+        "Gynecologist": 8,
+        "Orthopedic": 8
+    }
+
+def plan_language(c, lang_id, wave1_size=100, wave_size=250):
+    c.execute("UPDATE languages SET planned=1 WHERE id=?", (lang_id,))
+    count = c.execute("SELECT COUNT(*) FROM scripts WHERE language_id=?", (lang_id,)).fetchone()[0]
+    return count
+
 # Official taxonomy specification based on client targets
 TAXONOMY_ITEMS = [
     # Healthcare: Doctor-Patient Consultation (167 scripts total)
