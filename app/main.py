@@ -12,11 +12,11 @@ from zoneinfo import ZoneInfo
 
 import traceback
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from . import admin_ops, codes, config, db, ops
+from . import admin_ops, codes, config, db, ops, sync
 from . import pipeline as P
 from . import taxonomy as T
 from . import validators as V
@@ -67,13 +67,16 @@ def backup_db():
 
 @asynccontextmanager
 async def lifespan(app):
+    sync.restore_from_cloud()
     db.init_db()
     ensure_admin()
+    sync.start_background_sync(interval=15)
     P.Stop.event.clear()
     if not os.environ.get("SF_NO_THREADS"):
         P.Orchestrator().start()
         threading.Thread(target=sweeper, daemon=True).start()
     yield
+    sync.backup_to_cloud(force=True)
     P.Stop.event.set()
 
 
@@ -1874,7 +1877,54 @@ async def data_page(request: Request):
         orph = c.execute("SELECT * FROM orphans WHERE status='OPEN' ORDER BY id DESC LIMIT 50").fetchall() if u["role"] == "admin" else []
         return render(request, "admin_data.html", u, L=L, langs=langs(c), reports=ops.REPORTS if u["role"] == "admin" else
                       [r for r in ops.REPORTS if r != "audit"], orphans=[(o["id"], json.loads(o["payload"])) for o in orph],
-                      mode=db.setting(c, "verification_mode"), result=None)
+                      mode=db.setting(c, "verification_mode"), result=None, cloud_configured=sync.is_configured())
+
+
+@app.get("/admin/download_db")
+async def download_db(request: Request):
+    u = gate(request, "admin")
+    p = config.db_path()
+    if not os.path.exists(p):
+        raise HTTPException(404, "Database not found")
+    return FileResponse(p, filename="factory.db", media_type="application/octet-stream")
+
+
+@app.post("/admin/upload_db")
+async def upload_db(request: Request):
+    u, f = await post(request, "admin")
+    file_upload = f.get("file")
+    if not file_upload or not hasattr(file_upload, "read"):
+        return back("/admin/data", e="No file uploaded.")
+    content = await file_upload.read()
+    if len(content) < 1000:
+        return back("/admin/data", e="Invalid or empty database file.")
+    p = config.db_path()
+    with open(p, "wb") as out:
+        out.write(content)
+    sync.backup_to_cloud(force=True)
+    return back("/admin/data", m="Database successfully restored from upload and synced to cloud.")
+
+
+@app.post("/admin/cloud_backup")
+async def manual_cloud_backup(request: Request):
+    u, f = await post(request, "admin")
+    if not sync.is_configured():
+        return back("/admin/data", e="Cloud backup is not configured (SUPABASE_URL and SUPABASE_KEY missing).")
+    ok = sync.backup_to_cloud(force=True)
+    if ok:
+        return back("/admin/data", m="Database successfully backed up to cloud storage.")
+    return back("/admin/data", e="Failed to backup to cloud. Check logs or Supabase credentials.")
+
+
+@app.post("/admin/cloud_restore")
+async def manual_cloud_restore(request: Request):
+    u, f = await post(request, "admin")
+    if not sync.is_configured():
+        return back("/admin/data", e="Cloud backup is not configured (SUPABASE_URL and SUPABASE_KEY missing).")
+    ok = sync.restore_from_cloud()
+    if ok:
+        return back("/admin/data", m="Database successfully restored from cloud storage.")
+    return back("/admin/data", e="Failed to restore from cloud. Check logs or Supabase credentials.")
 
 
 @app.post("/admin/data/{act}")

@@ -37,5 +37,55 @@
 {% if orphans %}<div class="card"><h2>Client sessions with no assignment ({{ orphans|length }})</h2>
   {% for id,p in orphans %}<div class="row" style="justify-content:space-between;border-bottom:1px solid var(--line);padding:.3rem 0"><code class="small">{{ p }}</code>
     <form method="post" action="/admin/data/orphan" enctype="multipart/form-data"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="id" value="{{ id }}"><button class="btn sm">Dismiss</button></form></div>{% endfor %}</div>{% endif %}
+
+<div class="card" style="margin-top:1.5rem; border-left:4px solid var(--acc);">
+  <h2>💾 Database Persistence & Cloud Sync</h2>
+  <p class="small mute">
+    Protect your data against cloud server restarts. Automatically syncs to Supabase storage, or download/restore locally anytime.
+  </p>
+
+  <div class="grid g2" style="margin-top:1rem; gap:1.2rem;">
+    <!-- 1. Cloud Sync Status & Actions -->
+    <div style="background:rgba(30,41,59,0.3); border:1px solid var(--line); border-radius:8px; padding:1.2rem;">
+      <div style="font-weight:700; margin-bottom:.5rem;">☁️ Real-Time Cloud Sync (Supabase)</div>
+      {% if cloud_configured %}
+        <span class="pill ok" style="margin-bottom:.8rem; display:inline-block;">● Connected & Auto-Syncing</span>
+        <div class="row" style="gap:.6rem; margin-top:.4rem; flex-wrap:wrap;">
+          <form method="post" action="/admin/cloud_backup" class="inline">
+            <input type="hidden" name="csrf" value="{{ csrf }}">
+            <button class="btn sm pri">Backup to Cloud Now</button>
+          </form>
+          <form method="post" action="/admin/cloud_restore" class="inline" onsubmit="return confirm('Restore latest database from cloud storage? Current unsaved changes will be replaced.')">
+            <input type="hidden" name="csrf" value="{{ csrf }}">
+            <button class="btn sm">Restore from Cloud Now</button>
+          </form>
+        </div>
+      {% else %}
+        <span class="pill warn" style="margin-bottom:.8rem; display:inline-block;">⚠️ Cloud Sync Not Configured</span>
+        <p class="small mute" style="margin-top:.4rem; line-height:1.5;">
+          Set <code>SUPABASE_URL</code>, <code>SUPABASE_KEY</code>, and <code>SUPABASE_BUCKET</code> in Render environment variables to enable 100% automatic real-time cloud backup & restore across restarts.
+        </p>
+      {% endif %}
+    </div>
+
+    <!-- 2. Manual Download & Restore -->
+    <div style="background:rgba(30,41,59,0.3); border:1px solid var(--line); border-radius:8px; padding:1.2rem;">
+      <div style="font-weight:700; margin-bottom:.5rem;">💻 Manual Download & Restore</div>
+      <div style="margin-bottom:1rem;">
+        <a href="/admin/download_db" class="btn sm" style="text-decoration:none; display:inline-flex; align-items:center; gap:6px;">
+          ⬇️ Download Current factory.db
+        </a>
+      </div>
+      <form method="post" action="/admin/upload_db" enctype="multipart/form-data" onsubmit="return confirm('⚠️ Upload and replace the current database with this file?')">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <label class="small mute" style="font-weight:600; display:block; margin-bottom:.3rem;">Restore from .db file:</label>
+        <div class="row" style="gap:.5rem; align-items:center;">
+          <input type="file" name="file" accept=".db" required style="font-size:.85rem; padding:.2rem; flex:1;">
+          <button class="btn sm warn">Restore</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
 {% endif %}
 {% endblock %}
