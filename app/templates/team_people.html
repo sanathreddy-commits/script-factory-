@@ -1,0 +1,284 @@
+{% extends "base.html" %}
+{% block body %}
+<div class="pagehead">
+  <div>
+    <h1>{{ L.name }}: people</h1>
+    <div class="small mute">Manage participants, contact numbers, edit profiles, and issue access codes.</div>
+  </div>
+</div>
+
+<!-- KPI Summary Cards -->
+<div class="grid g4" style="margin-bottom:1.5rem">
+  <div class="card" style="text-align:center; padding:1.2rem; border-left:4px solid var(--acc)">
+    <div class="kpi">{{ total_people }}</div>
+    <div class="small mute" style="font-weight:600; text-transform:uppercase; margin-top:.3rem">Total People</div>
+  </div>
+  <div class="card" style="text-align:center; padding:1.2rem; border-left:4px solid var(--ok)">
+    <div class="kpi" style="color:var(--ok)">{{ active_agents }}</div>
+    <div class="small mute" style="font-weight:600; text-transform:uppercase; margin-top:.3rem">Active Agents</div>
+  </div>
+  <div class="card" style="text-align:center; padding:1.2rem; border-left:4px solid #3b82f6">
+    <div class="kpi" style="color:#3b82f6">{{ paired_count }}</div>
+    <div class="small mute" style="font-weight:600; text-transform:uppercase; margin-top:.3rem">Paired Up</div>
+  </div>
+  <div class="card" style="text-align:center; padding:1.2rem; border-left:4px solid var(--warn)">
+    <div class="kpi" style="color:var(--warn)">{{ unpaired_count }}</div>
+    <div class="small mute" style="font-weight:600; text-transform:uppercase; margin-top:.3rem">Unpaired</div>
+  </div>
+</div>
+
+{% if preview %}
+<div class="card">
+  <h2>Preview: {{ preview|selectattr('status','equalto','OK')|list|length }} OK of {{ preview|length }}</h2>
+  <div class="tw">
+    <table class="stack">
+      <thead><tr><th>Name</th><th>Phone</th><th>Email</th><th>Hours used</th><th>Result</th></tr></thead>
+      <tbody>
+        {% for r in preview %}
+        <tr>
+          <td data-l="Name">{{ r.name }}</td>
+          <td data-l="Phone">{{ r.phone }}</td>
+          <td data-l="Email">{{ r.email }}</td>
+          <td data-l="Hours">{{ r.hours_used }}</td>
+          <td data-l="Result"><span class="pill {{ 'ok' if r.status=='OK' else 'bad' }}">{{ r.status }}</span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <form method="post" action="/team/people/commit" style="margin-top:.8rem">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="hidden" name="lang" value="{{ L.id }}">
+    <input type="hidden" name="rows" value="{{ preview_json }}">
+    <button class="btn pri">Add the OK rows</button> 
+    <a class="btn" href="/team/people?lang={{ L.id }}">Cancel</a>
+  </form>
+</div>
+{% else %}
+
+{% if can %}
+<div class="row" style="margin-bottom:1rem; gap:.6rem; flex-wrap:wrap">
+  <button class="btn pri" onclick="document.getElementById('add-forms').style.display='grid'; this.style.display='none';">+ Add Agent / Bulk Upload</button>
+  <a class="btn" href="/team/people/share_all" style="background:#10b981; border-color:#10b981; color:#fff; font-weight:600">📤 Send Codes to All</a>
+  <a class="btn" href="/team/people/export_codes">📥 Export CSV</a>
+  <form method="post" action="/team/people/reissue_all" class="inline" onsubmit="return confirm('Generate NEW access codes for ALL agents? Their old codes will stop working immediately.')">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="hidden" name="lang" value="{{ L.id }}">
+    <button class="btn warn" style="font-weight:600">🔄 Issue New Codes to All</button>
+  </form>
+</div>
+
+<div class="grid g2" id="add-forms" style="display:none; margin-bottom:1.5rem">
+  <div class="card">
+    <h2>Add one person</h2>
+    <form method="post" action="/team/people/add">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      {% if L.id == 'all' %}
+      <label>Language</label>
+      <select name="lang">{% for l in langs %}<option value="{{ l.id }}">{{ l.name }}</option>{% endfor %}</select>
+      {% else %}
+      <input type="hidden" name="lang" value="{{ L.id }}">
+      {% endif %}
+      <label>Name</label><input name="name" required>
+      <div class="grid g2">
+        <div><label>Phone</label><input name="phone" inputmode="tel"></div>
+        <div><label>Email</label><input name="email" type="email"></div>
+      </div>
+      <div class="grid g2">
+        <div>
+          <label>Role</label>
+          <select name="role">
+            <option value="participant">Participant</option>
+            {% if user.role=='admin' %}
+            <option value="lead">Team lead</option>
+            <option value="reviewer">Reviewer</option>
+            {% endif %}
+          </select>
+        </div>
+        <div>
+          <label>Lead permission</label>
+          <select name="perm"><option value="manage">Manage</option><option value="view">View only</option></select>
+        </div>
+      </div>
+      <div class="grid g2">
+        <div><label>Hours already used (old sheet)</label><input name="hours_used" type="number" step="0.1" value="0"></div>
+      </div>
+      <div class="row" style="margin-top:.8rem; gap:.6rem">
+        <button class="btn pri">Create and show code</button>
+        <button type="button" class="btn" onclick="document.getElementById('add-forms').style.display='none'; document.querySelector('.btn.pri').style.display='inline-flex';">Cancel</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>Bulk upload (CSV / Paste)</h2>
+    <p class="small mute">Columns: name, phone, email, hours_used.</p>
+    <form method="post" action="/team/people/preview" enctype="multipart/form-data">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      {% if L.id == 'all' %}
+      <label>Language</label>
+      <select name="lang">{% for l in langs %}<option value="{{ l.id }}">{{ l.name }}</option>{% endfor %}</select>
+      {% else %}
+      <input type="hidden" name="lang" value="{{ L.id }}">
+      {% endif %}
+      <div class="row"><input type="file" name="file" accept=".csv" style="width:auto"> <span class="mute small">OR</span></div>
+      <label>Paste CSV data directly</label><textarea name="csv_paste" placeholder="name,phone,email,hours_used..."></textarea>
+      <button class="btn pri" style="margin-top:.6rem">Preview</button>
+    </form>
+  </div>
+</div>
+{% endif %}
+
+<div class="card">
+  <div class="row" style="justify-content:space-between; align-items:center; margin-bottom:1rem; flex-wrap:wrap; gap:.8rem">
+    <div>
+      <h2 style="margin:0"><span id="people-count">{{ rows|length }}</span> people</h2>
+      <div class="small mute">Manage participants, contact numbers, edit profiles, and issue access codes.</div>
+    </div>
+    
+    <!-- Dedicated People Search Bar -->
+    <div style="position:relative; min-width:280px; max-width:420px; flex:1">
+      <input type="text" id="people-search" 
+             placeholder="🔍 Search name, phone, email, role, pair..." 
+             style="width:100%; padding:.5rem .9rem; padding-right:2.2rem; font-size:.9rem; border-radius:6px; background:var(--bg); border:1px solid var(--line)"
+             oninput="sfFilterTable('people-search', 'people-table', 'people-count', 'people-nomatch')">
+      <button type="button" id="people-search-clear" onclick="sfClearFilter('people-search', 'people-table', 'people-count', 'people-nomatch')" 
+              style="display:none; position:absolute; right:8px; top:50%; transform:translateY(-50%); background:none; border:none; color:#94a3b8; cursor:pointer; font-size:1.1rem; line-height:1; padding:0" title="Clear search">✕</button>
+    </div>
+  </div>
+
+  <div class="tw">
+    <table class="stack" id="people-table">
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Role</th>
+          <th>Phone</th>
+          <th>Email</th>
+          <th>Pair</th>
+          <th>Consent</th>
+          <th>Hours</th>
+          <th>Status</th>
+          <th class="act">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+        <tr>
+          <td data-l="Name"><b>{{ r.name }}</b>{% if r.lang_name %} <span class="pill gray">{{ r.lang_name }}</span>{% endif %}</td>
+          <td data-l="Role">{{ r.role }}{{ ' (view)' if r.role=='lead' and r.perm=='view' }}</td>
+          <td data-l="Phone" class="mono"><b>{{ r.phone or '—' }}</b></td>
+          <td data-l="Email" class="mono">{{ r.email or '—' }}</td>
+          <td data-l="Pair">{{ ('#'~pairs[r.id]) if r.id in pairs else '-' }}</td>
+          <td data-l="Consent">{{ '✓' if r.consent_at else '-' }}</td>
+          <td data-l="Hours" class="mono">{{ used[r.id]|hrs }}</td>
+          <td data-l="Status"><span class="pill {{ 'ok' if r.active else 'bad' }}">{{ 'active' if r.active else 'revoked' }}</span></td>
+          <td class="act">
+            {% if can and (r.role=='participant' or user.role=='admin') %}
+            <div class="row" style="gap:.3rem; justify-content:flex-end; flex-wrap:wrap">
+              <button type="button" class="btn sm" onclick="openEditModal({{ r.id }}, '{{ r.name|replace("'", "\\'") }}', '{{ r.phone or '' }}', '{{ r.email or '' }}', '{{ r.role }}', '{{ r.language_id or '' }}', {{ 'true' if r.active else 'false' }})">✏️ Edit</button>
+              <form method="post" action="/team/people/{{ r.id }}/showcode" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn sm">Code</button></form>
+              <form method="post" action="/team/people/{{ r.id }}/reissue" class="inline" onsubmit="return confirm('Issue a new code for {{ r.name }}? The old code will stop working immediately.')"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn sm">Reissue</button></form>
+              <form method="post" action="/team/people/{{ r.id }}/{{ 'revoke' if r.active else 'activate' }}" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn sm {{ 'bad' if r.active }}">{{ 'Revoke' if r.active else 'Activate' }}</button></form>
+            </div>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Edit Person Modal Dialog -->
+<div id="edit-modal" style="display:none; position:fixed; z-index:9999; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.6); align-items:center; justify-content:center; padding:1rem">
+  <div class="card" style="max-width:480px; width:100%; background:var(--card); box-shadow:0 20px 25px -5px rgba(0,0,0,0.5); border:1px solid var(--acc); border-radius:12px; padding:1.5rem">
+    <div class="row" style="justify-content:space-between; align-items:center; margin-bottom:1rem; border-bottom:1px solid var(--line); padding-bottom:.6rem">
+      <h2 id="edit-modal-title" style="margin:0; font-size:1.2rem">✏️ Edit Person</h2>
+      <button type="button" class="btn sm" onclick="closeEditModal()" style="padding:.2rem .6rem">✕</button>
+    </div>
+    <form id="edit-person-form" method="post" action="">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <label style="font-weight:600">Full Name</label>
+      <input id="edit-name" name="name" required style="width:100%; margin-bottom:.8rem">
+
+      <div class="grid g2" style="gap:.8rem; margin-bottom:.8rem">
+        <div>
+          <label style="font-weight:600">Phone Number</label>
+          <input id="edit-phone" name="phone" inputmode="tel" placeholder="10-digit number" style="width:100%">
+        </div>
+        <div>
+          <label style="font-weight:600">Email Address</label>
+          <input id="edit-email" name="email" type="email" placeholder="agent@example.com" style="width:100%">
+        </div>
+      </div>
+
+      <div class="grid g2" style="gap:.8rem; margin-bottom:1rem">
+        <div>
+          <label style="font-weight:600">Role</label>
+          <select id="edit-role" name="role" style="width:100%">
+            <option value="participant">Participant</option>
+            {% if user.role=='admin' %}
+            <option value="lead">Team lead</option>
+            <option value="reviewer">Reviewer</option>
+            {% endif %}
+          </select>
+        </div>
+        <div>
+          <label style="font-weight:600">Account Status</label>
+          <select id="edit-active" name="active" style="width:100%">
+            <option value="1">Active</option>
+            <option value="0">Revoked / Inactive</option>
+          </select>
+        </div>
+      </div>
+
+      {% if user.role == 'admin' %}
+      <div style="margin-bottom:1rem">
+        <label style="font-weight:600">Language</label>
+        <select id="edit-lang" name="lang" style="width:100%">
+          {% for l in langs %}<option value="{{ l.id }}">{{ l.name }}</option>{% endfor %}
+        </select>
+      </div>
+      {% endif %}
+
+      <div class="row" style="justify-content:flex-end; gap:.6rem; margin-top:1.2rem">
+        <button type="button" class="btn" onclick="closeEditModal()">Cancel</button>
+        <button type="submit" class="btn pri">Save Changes</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+function openEditModal(uid, name, phone, email, role, langId, isActive) {
+  var modal = document.getElementById('edit-modal');
+  var form = document.getElementById('edit-person-form');
+  form.action = '/team/people/' + uid + '/edit';
+  document.getElementById('edit-modal-title').textContent = '✏️ Edit: ' + name;
+  document.getElementById('edit-name').value = name;
+  document.getElementById('edit-phone').value = phone;
+  document.getElementById('edit-email').value = email;
+  document.getElementById('edit-role').value = role;
+  document.getElementById('edit-active').value = isActive ? '1' : '0';
+  var langSelect = document.getElementById('edit-lang');
+  if (langSelect && langId) {
+    langSelect.value = langId;
+  }
+  modal.style.display = 'flex';
+}
+
+function closeEditModal() {
+  document.getElementById('edit-modal').style.display = 'none';
+}
+
+// Close on outside click
+window.addEventListener('click', function(e) {
+  var modal = document.getElementById('edit-modal');
+  if (e.target === modal) {
+    closeEditModal();
+  }
+});
+</script>
+{% endif %}
+{% endblock %}

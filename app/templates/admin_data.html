@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block body %}
+<h1>{{ 'Data and reports' if user.role=='admin' else 'Reports' }}</h1>
+
+{% if result and result.rows is defined %}
+<div class="card"><h2>Import preview</h2>
+  <div class="tw"><table class="stack"><thead><tr><th>File</th><th>Sub-domain</th><th>Words</th><th>Result</th></tr></thead><tbody>
+  {% for i in result.rows %}<tr><td data-l="File">{{ i.label }}</td><td data-l="Sub-domain">{{ i.subdomain }}{{ ' · '~i.specialisation if i.specialisation }}</td><td data-l="Words">{{ i.words or '' }}</td>
+    <td data-l="Result"><span class="pill {{ 'ok' if i.status=='OK' else 'bad' }}">{{ i.status }}</span> <span class="small">{{ i.notes|join('; ') }}</span></td></tr>{% endfor %}</tbody></table></div>
+  <form method="post" action="/admin/data/importcommit" enctype="multipart/form-data" style="margin-top:.8rem"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="batch" value="{{ result.batch }}"><button class="btn pri">Commit the OK rows</button> <a class="btn" href="/admin/data">Cancel</a></form>
+  <p class="small mute">After import the database copy is the master. Edits to the original files do not flow back.</p></div>
+{% elif result and result.revalidate is defined %}
+<div class="card"><h2>Re-validation against the current spec: {{ result.revalidate|length }} fail</h2>
+  {% for code,st,e in result.revalidate %}<div class="small"><b>{{ code }}</b> ({{ st }}) {{ e }}</div>{% else %}<span class="pill ok">all scripts pass</span>{% endfor %}</div>
+{% endif %}
+
+<div class="card"><h2>Downloads (CSV)</h2>
+  <form method="get" class="row" onsubmit="this.action='/report/'+this.r.value">
+    <select name="r" style="max-width:260px">{% for r in reports %}<option value="{{ r }}">{{ r.replace('_',' ') }}</option>{% endfor %}</select>
+    {% if user.role=='admin' %}<select name="lang" style="max-width:200px"><option value="">All languages</option>{% for l in langs %}<option value="{{ l.id }}">{{ l.name }}</option>{% endfor %}</select>{% endif %}
+    <label class="inline" style="margin:0"><input type="checkbox" name="mask" value="0"> full phone numbers</label>
+    <button class="btn pri">Download</button></form>
+  <p class="small mute">Every export is logged. Payout is built from confirmed minutes only. Client manifest lists confirmed recordings, labelled VERIFIED or UNVERIFIED.</p></div>
+
+{% if user.role=='admin' %}
+<div class="grid g2">
+<div class="card"><h2>Reconcile with client session log</h2><p class="small mute">CSV with script_id (or user + start + duration), duration_sec, session_id. Verification mode now: <b>{{ mode }}</b> (change in Settings).</p>
+  <form method="post" action="/admin/data/reconcile" enctype="multipart/form-data"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="file" name="file" accept=".csv" required><button class="btn" style="margin-top:.6rem">Reconcile</button></form></div>
+<div class="card"><h2>Import client QC results</h2><p class="small mute">CSV with script_id, result (PASS or FAIL), reason.</p>
+  <form method="post" action="/admin/data/qc" enctype="multipart/form-data"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="file" name="file" accept=".csv" required><button class="btn" style="margin-top:.6rem">Import QC</button></form></div>
+<div class="card"><h2>Import ready-made scripts</h2><p class="small mute">CSV (subdomain, specialisation, text) or ZIP of .txt/.md files plus index.csv (file, subdomain, specialisation). Lines look like <code>Doctor: …</code>. They fill free slots, so quotas stay exact.</p>
+  <form method="post" action="/admin/data/import" enctype="multipart/form-data"><input type="hidden" name="csrf" value="{{ csrf }}">
+    <select name="lang">{% for l in langs %}<option value="{{ l.id }}">{{ l.name }}</option>{% endfor %}</select><input type="file" name="file" accept=".csv,.zip" required style="margin-top:.4rem"><button class="btn" style="margin-top:.6rem">Preview</button></form></div>
+<div class="card"><h2>Re-validate after a spec change</h2><p class="small mute">Lists every written script that fails the current rules.</p>
+  <form method="post" action="/admin/data/revalidate" enctype="multipart/form-data"><input type="hidden" name="csrf" value="{{ csrf }}"><select name="lang">{% for l in langs %}<option value="{{ l.id }}">{{ l.name }}</option>{% endfor %}</select><button class="btn" style="margin-top:.6rem">Run</button></form></div>
+</div>
+{% if orphans %}<div class="card"><h2>Client sessions with no assignment ({{ orphans|length }})</h2>
+  {% for id,p in orphans %}<div class="row" style="justify-content:space-between;border-bottom:1px solid var(--line);padding:.3rem 0"><code class="small">{{ p }}</code>
+    <form method="post" action="/admin/data/orphan" enctype="multipart/form-data"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="id" value="{{ id }}"><button class="btn sm">Dismiss</button></form></div>{% endfor %}</div>{% endif %}
+{% endif %}
+{% endblock %}

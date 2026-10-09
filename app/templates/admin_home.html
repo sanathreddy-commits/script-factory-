@@ -1,0 +1,171 @@
+{% extends "base.html" %}
+{% block body %}
+<div class="pagehead">
+  <div>
+    <h1>Dashboard</h1>
+    <div class="small mute">Generation spend {{ spent|inr }} of {{ cap|inr }}</div>
+  </div>
+  <a class="btn pri" href="/admin/language/new">+ New language</a>
+</div>
+
+{% if alerts %}
+<div class="card">
+  <h2>Alerts</h2>
+  {% for lvl,msg in alerts %}<div class="alert {{ lvl }}">{{ msg }}</div>{% endfor %}
+</div>
+{% endif %}
+
+<!-- Language Summary Cards -->
+<div class="grid g3" style="margin-bottom:1.5rem">
+{% for t in tiles %}
+  <a href="/admin/language/{{ t.L.id }}" class="card" style="color:inherit;text-decoration:none">
+    <div class="row" style="justify-content:space-between">
+      <h2 style="margin:0">{{ t.L.name }}</h2>
+      <span class="pill {{ 'ok' if t.score>=80 else 'warn' if t.score>=50 else 'bad' }}" title="Health score">health {{ t.score }}</span>
+    </div>
+    <div class="small mute" style="margin:.2rem 0 .6rem">Target Quota: {{ t.L.target }} scripts</div>
+    <div class="grid g4" style="gap:.4rem">
+      <div><div class="kpi">{{ t.approved + t.review }}</div><div class="small mute">In Stock</div></div>
+      <div><div class="kpi">{{ t.approved }}</div><div class="small mute">Approved</div></div>
+      <div><div class="kpi">{{ t.a.get('ASSIGNED',0)+t.a.get('IN_SESSION',0)+t.a.get('SELF_REPORTED',0) }}</div><div class="small mute">With Pairs</div></div>
+      <div><div class="kpi">{{ t.conf }}</div><div class="small mute">Confirmed</div></div>
+    </div>
+    <div class="bar ok" style="margin-top:.7rem"><i style="width:{{ 100*t.conf/t.L.target if t.L.target else 0 }}%"></i></div>
+  </a>
+{% else %}
+  <div class="card"><p>No language yet.</p><a class="btn pri" href="/admin/language/new">Create Language</a></div>
+{% endfor %}
+</div>
+
+<!-- Taxonomy Breakdown & Quota Matrix -->
+<div class="card" style="margin-bottom:1.5rem">
+  <div class="row" style="justify-content:space-between; align-items:center; margin-bottom:1rem; flex-wrap:wrap; gap:.8rem">
+    <div>
+      <h2 style="margin:0">📊 Taxonomy Quota & Progress Matrix: {{ current_L.name if current_L and current_L.id != 'all' else 'All Languages' }}</h2>
+      <div class="small mute">Track uploaded scripts, stock availability, active recordings, and completed deliverables against target quotas.</div>
+    </div>
+
+    <!-- Taxonomy In-Tab Search Bar -->
+    <div style="position:relative; min-width:280px; max-width:400px; flex:1">
+      <input type="text" id="taxonomy-search" 
+             placeholder="🔍 Filter domain, subdomain, doctor specialisation..." 
+             style="width:100%; padding:.5rem .9rem; padding-right:2.2rem; font-size:.9rem; border-radius:6px; background:var(--bg); border:1px solid var(--line)"
+             oninput="sfFilterTable('taxonomy-search', 'taxonomy-table', 'taxonomy-count', 'taxonomy-nomatch')">
+      <button type="button" id="taxonomy-search-clear" onclick="sfClearFilter('taxonomy-search', 'taxonomy-table', 'taxonomy-count', 'taxonomy-nomatch')" 
+              style="display:none; position:absolute; right:8px; top:50%; transform:translateY(-50%); background:none; border:none; color:#94a3b8; cursor:pointer; font-size:1.1rem; line-height:1; padding:0" title="Clear search">✕</button>
+    </div>
+  </div>
+
+  <!-- Mini KPI Banner for Taxonomy -->
+  <div class="grid g4" style="margin-bottom:1.2rem; gap:.6rem">
+    <div style="background:var(--bg); padding:.8rem 1rem; border-radius:8px; border-left:4px solid var(--acc)">
+      <div class="small mute" style="font-weight:600">TARGET QUOTA</div>
+      <div class="kpi" style="font-size:1.4rem">{{ taxonomy_summary.total_quota }}</div>
+    </div>
+    <div style="background:var(--bg); padding:.8rem 1rem; border-radius:8px; border-left:4px solid #3b82f6">
+      <div class="small mute" style="font-weight:600">UPLOADED IN SYSTEM</div>
+      <div class="kpi" style="font-size:1.4rem; color:#3b82f6">{{ taxonomy_summary.total_uploaded }}</div>
+    </div>
+    <div style="background:var(--bg); padding:.8rem 1rem; border-radius:8px; border-left:4px solid var(--warn)">
+      <div class="small mute" style="font-weight:600">IN PROGRESS (PAIRS)</div>
+      <div class="kpi" style="font-size:1.4rem; color:var(--warn)">{{ taxonomy_summary.total_in_prog }}</div>
+    </div>
+    <div style="background:var(--bg); padding:.8rem 1rem; border-radius:8px; border-left:4px solid var(--ok)">
+      <div class="small mute" style="font-weight:600">COMPLETED RECORDINGS</div>
+      <div class="kpi" style="font-size:1.4rem; color:var(--ok)">{{ taxonomy_summary.total_completed }}</div>
+    </div>
+  </div>
+
+  <div class="tw">
+    <table class="stack" id="taxonomy-table">
+      <thead>
+        <tr>
+          <th>Domain</th>
+          <th>Sub-domain</th>
+          <th>Specialisation / Sub-category</th>
+          <th style="text-align:center">Target Quota</th>
+          <th style="text-align:center">Uploaded</th>
+          <th style="text-align:center">In Stock</th>
+          <th style="text-align:center">In Progress</th>
+          <th style="text-align:center">Completed</th>
+          <th style="min-width:140px">Progress</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in taxonomy_rows %}
+        <tr>
+          <td data-l="Domain">
+            <span class="pill {{ 'blue' if r.domain == 'Healthcare' else 'gray' }}" style="font-weight:700">{{ r.domain }}</span>
+          </td>
+          <td data-l="Sub-domain"><b>{{ r.subdomain }}</b></td>
+          <td data-l="Specialisation">
+            {% if r.specialisation %}
+              <span class="pill ok" style="font-weight:600">{{ r.specialisation }}</span>
+              <span class="small mute" style="margin-left:.3rem">({{ r.share }})</span>
+            {% else %}
+              <span class="mute">—</span>
+            {% endif %}
+          </td>
+          <td data-l="Quota" style="text-align:center" class="mono"><b>{{ r.quota }}</b></td>
+          <td data-l="Uploaded" style="text-align:center" class="mono">
+            <span style="font-weight:700; color:{{ 'var(--ok)' if r.uploaded >= r.quota and r.quota > 0 else 'inherit' }}">
+              {{ r.uploaded }}
+            </span>
+          </td>
+          <td data-l="In Stock" style="text-align:center" class="mono">{{ r.in_stock }}</td>
+          <td data-l="In Progress" style="text-align:center" class="mono">
+            {% if r.in_prog > 0 %}
+              <span class="pill warn" style="font-size:.78rem; font-weight:700">{{ r.in_prog }}</span>
+            {% else %}
+              <span class="mute">0</span>
+            {% endif %}
+          </td>
+          <td data-l="Completed" style="text-align:center" class="mono">
+            {% if r.completed > 0 %}
+              <span class="pill ok" style="font-size:.78rem; font-weight:700">{{ r.completed }}</span>
+            {% else %}
+              <span class="mute">0</span>
+            {% endif %}
+          </td>
+          <td data-l="Progress">
+            <div style="display:flex; align-items:center; gap:.5rem">
+              <div class="bar ok" style="flex:1; height:7px; background:var(--line)">
+                <i style="width:{{ r.pct }}%"></i>
+              </div>
+              <span class="mono small mute" style="font-weight:600; min-width:38px">{{ r.pct }}%</span>
+            </div>
+          </td>
+          <td style="text-align:right">
+            <a href="/admin/scripts?domain={{ r.domain }}&subdomain={{ r.subdomain }}&spec={{ r.specialisation }}" class="btn sm">View Scripts &rarr;</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot>
+        <tr style="background:var(--acc2); font-weight:700">
+          <td colspan="3"><b>TOTAL ALL CATEGORIES</b></td>
+          <td style="text-align:center" class="mono"><b>{{ taxonomy_summary.total_quota }}</b></td>
+          <td style="text-align:center" class="mono"><b>{{ taxonomy_summary.total_uploaded }}</b></td>
+          <td style="text-align:center" class="mono"><b>{{ taxonomy_summary.total_stock }}</b></td>
+          <td style="text-align:center" class="mono"><b>{{ taxonomy_summary.total_in_prog }}</b></td>
+          <td style="text-align:center" class="mono"><b style="color:var(--ok)">{{ taxonomy_summary.total_completed }}</b></td>
+          <td>
+            <div style="display:flex; align-items:center; gap:.5rem">
+              <div class="bar ok" style="flex:1; height:8px">
+                <i style="width:{{ taxonomy_summary.overall_pct }}%"></i>
+              </div>
+              <span class="mono small" style="font-weight:700">{{ taxonomy_summary.overall_pct }}%</span>
+            </div>
+          </td>
+          <td></td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+</div>
+
+{% if orphans %}
+<div class="card"><b>{{ orphans }}</b> client sessions have no matching assignment. <a href="/admin/data">Open Data</a></div>
+{% endif %}
+{% endblock %}

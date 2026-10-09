@@ -1,0 +1,196 @@
+{% extends "base.html" %}
+{% block mainclass %}narrow{% endblock %}
+{% block body %}
+<div class="pagehead">
+  <div>
+    <h1>Hi {{ user.name.split()[0] }}</h1>
+    <div class="mute small">{{ L.name }} · Audio Recording Portal</div>
+  </div>
+</div>
+
+<!-- Script Progress Counts (NO HOURS) -->
+<div class="grid g3" style="margin-bottom:1.5rem">
+  <div class="card" style="text-align:center; padding:1.2rem; border-left:4px solid var(--acc)">
+    <div class="kpi" id="kpi-total">{{ total_assigned }}</div>
+    <div class="small mute" style="font-weight:600; text-transform:uppercase; margin-top:.3rem">Total Assigned</div>
+  </div>
+  <div class="card" style="text-align:center; padding:1.2rem; border-left:4px solid var(--ok)">
+    <div class="kpi" id="kpi-completed" style="color:var(--ok)">{{ completed_count }}</div>
+    <div class="small mute" style="font-weight:600; text-transform:uppercase; margin-top:.3rem">Completed</div>
+  </div>
+  <div class="card" style="text-align:center; padding:1.2rem; border-left:4px solid var(--warn)">
+    <div class="kpi" id="kpi-pending" style="color:var(--warn)">{{ pending_count }}</div>
+    <div class="small mute" style="font-weight:600; text-transform:uppercase; margin-top:.3rem">Pending</div>
+  </div>
+</div>
+
+<!-- Partner Information Card -->
+<div class="card" style="margin-bottom:1.5rem">
+  <h2>Your Recording Partner</h2>
+  {% if pair and partner %}
+    <div style="font-size:1.15rem; font-weight:700; color:var(--ink); margin:.4rem 0">{{ partner.name }}</div>
+    <div style="display:flex; flex-direction:column; gap:.5rem; margin-top:.6rem">
+      {% if partner.phone %}
+      <div class="row" style="gap:.6rem; align-items:center; flex-wrap:wrap">
+        <span>📞 Phone: <b>{{ partner.phone }}</b></span>
+        {% if partner_wa %}
+        <a class="btn sm" href="https://wa.me/{{ partner_wa }}" target="_blank" rel="noopener" style="background:#25D366; color:#fff; border-color:#25D366; font-weight:600; text-decoration:none; display:inline-flex; align-items:center; gap:4px">
+          💬 WhatsApp Partner
+        </a>
+        {% endif %}
+      </div>
+      {% endif %}
+      {% if partner.email %}
+      <div class="row">
+        <span>✉️ Email: <b>{{ partner.email }}</b></span>
+      </div>
+      {% endif %}
+    </div>
+  {% else %}
+    <p class="mute" style="margin:.4rem 0">No partner assigned yet. Your team lead will pair you soon.</p>
+  {% endif %}
+  {% if lead %}
+    <p class="small mute" style="margin-top:.8rem; border-top:1px solid var(--line); padding-top:.5rem">
+      Team Lead: <b>{{ lead.name }}</b>
+      {% if lead.phone %} · <a href="https://wa.me/91{{ lead.phone }}" target="_blank" rel="noopener">WhatsApp Lead</a>{% endif %}
+    </p>
+  {% endif %}
+</div>
+
+<!-- Sequential Script Queue: Exactly ONE active script shown! -->
+<div class="card" style="margin-bottom:1.5rem; border-color:var(--acc)">
+  <h2>Your Current Script</h2>
+  {% if current_script %}
+    <div style="background:var(--acc2); border:1px solid var(--line); border-radius:8px; padding:1.2rem; margin-top:.8rem">
+      <div class="row" style="justify-content:space-between; align-items:center; margin-bottom:.5rem">
+        <span class="pill pri">Script {{ current_index }} of {{ total_assigned }}</span>
+        <span class="pill {{ 'ok' if current_script.status=='IN_SESSION' else 'warn' if current_script.status=='DISPUTED' else '' }}">
+          {{ current_script.status.replace('_',' ').title() }}
+        </span>
+      </div>
+      <h3 style="margin:.4rem 0 .2rem; font-size:1.3rem">{{ current_script.code }}</h3>
+      <div class="small mute" style="margin-bottom:1rem">
+        {{ current_script.subdomain }}{% if current_script.specialisation %} · {{ current_script.specialisation }}{% endif %}
+      </div>
+
+      <!-- Partner Readiness Live Display -->
+      <div id="partner-status-box" style="padding:.8rem 1rem; border-radius:8px; background:rgba(30,41,59,0.9); border:1px solid #3b82f6; margin-bottom:1rem">
+        <div class="row" style="align-items:center; gap:.6rem">
+          <span id="pready-dot" class="dot {{ 'on' if partner_ready else '' }}"></span>
+          <span id="pready-text" style="font-weight:600; color:#f8fafc; font-size:1rem">
+            {% if partner_ready %}✅ Partner is ready to record!{% else %}⏳ Waiting for partner to be ready...{% endif %}
+          </span>
+        </div>
+      </div>
+
+      <!-- Live Action Buttons -->
+      <div class="row" style="gap:.8rem; flex-wrap:wrap">
+        <button id="me-ready-btn" class="btn {{ '' if me_ready else 'pri' }}" type="button" style="flex:1" onclick="toggleMeReady()">
+          {{ 'Ready ✓ (Click to undo)' if me_ready else "I'm Ready" }}
+        </button>
+        <a href="/a/{{ current_script.id }}" class="btn pri big" style="flex:1; text-align:center">
+          Open Script & Record &rarr;
+        </a>
+      </div>
+    </div>
+    {% if pending_count > 1 %}
+    <p class="small mute" style="margin-top:.8rem; text-align:center">
+      🔒 {{ pending_count - 1 }} more script{{ 's' if (pending_count - 1) > 1 else '' }} in queue. Unlocks automatically as you complete each one.
+    </p>
+    {% endif %}
+  {% elif total_assigned > 0 and completed_count == total_assigned %}
+    <div style="text-align:center; padding:1.5rem">
+      <div style="font-size:2.5rem; margin-bottom:.5rem">🎉</div>
+      <h3 style="color:var(--ok)">All Assigned Scripts Completed!</h3>
+      <p class="mute">You and your partner have successfully recorded all {{ total_assigned }} scripts. Fantastic job!</p>
+    </div>
+  {% else %}
+    <p class="mute" style="margin:.4rem 0">No scripts assigned to your pair yet. Your team lead will assign scripts.</p>
+  {% endif %}
+</div>
+
+{% if current_script %}
+<!-- Quick Report Issue Option -->
+<div class="card" style="margin-bottom:1.5rem; background:rgba(30,41,59,0.5); border-left:4px solid var(--warn)">
+  <details>
+    <summary style="font-weight:600; cursor:pointer; color:var(--warn); display:flex; align-items:center; gap:.5rem">
+      ⚠️ Facing an issue with this session? (Partner no-show, audio, tech issue)
+    </summary>
+    <form method="post" action="/me/issue" style="margin-top:.8rem">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <div class="row" style="gap:.6rem; flex-wrap:wrap">
+        <select name="kind" style="max-width:240px">
+          <option value="partner_no_show">Partner did not show up</option>
+          <option value="audio_problem">Audio quality problem</option>
+          <option value="script_error">Script error</option>
+          <option value="tech_failure">Recorder not working</option>
+          <option value="other">Other issue</option>
+        </select>
+        <input name="note" placeholder="Short description of the issue..." style="flex:1; min-width:200px" required>
+        <button class="btn sm warn" style="font-weight:600">Report to Lead</button>
+      </div>
+    </form>
+  </details>
+</div>
+{% endif %}
+
+
+
+{% if current_script %}
+<script>
+(function() {
+  var csrf = "{{ csrf }}";
+  var isMeReady = {{ 'true' if me_ready else 'false' }};
+
+  window.toggleMeReady = function() {
+    var fd = new FormData();
+    fd.append('csrf', csrf);
+    fd.append('action', 'toggle');
+    fetch('/me/ready', { method: 'POST', body: fd, credentials: 'same-origin' })
+      .then(r => r.json())
+      .then(data => {
+        if (data.ok) {
+          isMeReady = data.ready;
+          var btn = document.getElementById('me-ready-btn');
+          if (btn) {
+            btn.textContent = isMeReady ? 'Ready ✓ (Click to undo)' : "I'm Ready";
+            btn.classList.toggle('pri', !isMeReady);
+          }
+        }
+      });
+  };
+
+  function pollMe() {
+    fetch('/me/state', { credentials: 'same-origin' })
+      .then(r => r.json())
+      .then(s => {
+        if (!s.paired) return;
+        var dot = document.getElementById('pready-dot');
+        var txt = document.getElementById('pready-text');
+        if (dot && txt) {
+          if (s.partner_ready) {
+            dot.className = 'dot on';
+            txt.innerHTML = '✅ Partner is ready to record!';
+          } else {
+            dot.className = 'dot';
+            txt.innerHTML = '⏳ Waiting for partner to be ready...';
+          }
+        }
+        var btn = document.getElementById('me-ready-btn');
+        if (btn && s.me_ready !== isMeReady) {
+          isMeReady = s.me_ready;
+          btn.textContent = isMeReady ? 'Ready ✓ (Click to undo)' : "I'm Ready";
+          btn.classList.toggle('pri', !isMeReady);
+        }
+        // Auto reload if script finished or advanced to next script
+        if (s.completed_count !== {{ completed_count }} || (s.current_id && s.current_id !== {{ current_script.id }})) {
+          location.reload();
+        }
+      })
+      .catch(() => {});
+  }
+  setInterval(pollMe, 3000);
+})();
+</script>
+{% endif %}
+{% endblock %}

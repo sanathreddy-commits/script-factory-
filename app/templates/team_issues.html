@@ -1,0 +1,179 @@
+{% extends "base.html" %}
+{% block body %}
+<div class="pagehead">
+  <div>
+    <h1>{{ L.name }}: Issue Reports</h1>
+    <div class="small mute">Live feed of problems reported by agents during recording sessions (partner no-shows, audio quality, recorder errors).</div>
+  </div>
+</div>
+
+<!-- Top KPI Summary Cards -->
+<div class="grid g4" style="margin-bottom:1.5rem">
+  <div class="card" style="text-align:center; padding:1.2rem; border-left:4px solid var(--acc)">
+    <div class="kpi">{{ total_issues }}</div>
+    <div class="small mute" style="font-weight:600; text-transform:uppercase; margin-top:.3rem">Total Reports</div>
+  </div>
+  <div class="card" style="text-align:center; padding:1.2rem; border-left:4px solid var(--warn)">
+    <div class="kpi" style="color:var(--warn)">{{ open_issues }}</div>
+    <div class="small mute" style="font-weight:600; text-transform:uppercase; margin-top:.3rem">Open Issues</div>
+  </div>
+  <div class="card" style="text-align:center; padding:1.2rem; border-left:4px solid var(--bad)">
+    <div class="kpi" style="color:var(--bad)">{{ no_show_issues }}</div>
+    <div class="small mute" style="font-weight:600; text-transform:uppercase; margin-top:.3rem">Partner No-Shows</div>
+  </div>
+  <div class="card" style="text-align:center; padding:1.2rem; border-left:4px solid var(--ok)">
+    <div class="kpi" style="color:var(--ok)">{{ resolved_issues }}</div>
+    <div class="small mute" style="font-weight:600; text-transform:uppercase; margin-top:.3rem">Resolved History</div>
+  </div>
+</div>
+
+<!-- Tab Switcher and Filter Row -->
+<div class="row" style="margin-bottom:1.2rem; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:.8rem">
+  <div class="row" style="gap:.5rem">
+    <a href="/team/issues?lang={{ L.id }}&tab=open&kind={{ kind_filter }}" class="btn {{ 'pri' if tab != 'resolved' else '' }}" style="font-weight:600">
+      ⚠️ Open Issues ({{ open_issues }})
+    </a>
+    <a href="/team/issues?lang={{ L.id }}&tab=resolved&kind={{ kind_filter }}" class="btn {{ 'pri' if tab == 'resolved' else '' }}" style="font-weight:600">
+      ✅ Resolved History ({{ resolved_issues }})
+    </a>
+  </div>
+
+  <form method="get" class="inline row" style="gap:.5rem; align-items:center">
+    <input type="hidden" name="lang" value="{{ L.id }}">
+    <input type="hidden" name="tab" value="{{ tab }}">
+    <label class="small mute" style="font-weight:600">Filter by Type:</label>
+    <select name="kind" onchange="this.form.submit()" style="min-height:34px; padding:.2rem .6rem; font-size:.85rem">
+      <option value="all" {% if kind_filter == 'all' %}selected{% endif %}>All Issue Types</option>
+      <option value="partner_no_show" {% if kind_filter == 'partner_no_show' %}selected{% endif %}>Partner No-Show</option>
+      <option value="audio_problem" {% if kind_filter == 'audio_problem' %}selected{% endif %}>Audio Quality</option>
+      <option value="script_error" {% if kind_filter == 'script_error' %}selected{% endif %}>Script Error</option>
+      <option value="tech_failure" {% if kind_filter == 'tech_failure' %}selected{% endif %}>Recorder Failure</option>
+      <option value="other" {% if kind_filter == 'other' %}selected{% endif %}>Other Issue</option>
+    </select>
+  </form>
+</div>
+
+<!-- Issues Table -->
+<div class="card">
+  <div class="row" style="justify-content:space-between; align-items:center; margin-bottom:1rem; flex-wrap:wrap; gap:.8rem">
+    <div>
+      <h2 style="margin:0"><span id="issues-count">{{ issues|length }}</span> {{ 'Open Issue Reports' if tab != 'resolved' else 'Resolved Issue Archives' }}</h2>
+      <div class="small mute">
+        {{ 'Live problem reports requiring lead review, partner communication, or script reassignment.' if tab != 'resolved' else 'Historical records of all resolved agent reports.' }}
+      </div>
+    </div>
+
+    <div style="position:relative; min-width:280px; max-width:420px; flex:1">
+      <input type="text" id="issues-search" 
+             placeholder="🔍 Search reporter, partner, script ID, problem type, text..." 
+             style="width:100%; padding:.5rem .9rem; padding-right:2.2rem; font-size:.9rem; border-radius:6px; background:var(--bg); border:1px solid var(--line)"
+             oninput="sfFilterTable('issues-search', 'issues-table', 'issues-count', 'issues-nomatch')">
+      <button type="button" id="issues-search-clear" onclick="sfClearFilter('issues-search', 'issues-table', 'issues-count', 'issues-nomatch')" 
+              style="display:none; position:absolute; right:8px; top:50%; transform:translateY(-50%); background:none; border:none; color:#94a3b8; cursor:pointer; font-size:1.1rem; line-height:1; padding:0" title="Clear search">✕</button>
+    </div>
+  </div>
+
+  <div class="tw">
+    <table class="stack" id="issues-table">
+      <thead>
+        <tr>
+          <th>#ID</th>
+          <th>Type</th>
+          <th>Reported By</th>
+          <th>Pair & Partner</th>
+          <th>Script</th>
+          <th>Agent Description</th>
+          <th>Reported At</th>
+          <th class="act">Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for i in issues %}
+        <tr>
+          <td data-l="#ID"><b>#{{ i.id }}</b></td>
+          <td data-l="Type">
+            <span class="pill {{ 'bad' if i.kind == 'partner_no_show' else 'warn' if i.kind in ('audio_problem','tech_failure') else 'blue' if i.kind == 'script_error' else 'gray' }}" style="font-weight:600">
+              {{ i.kind_label }}
+            </span>
+          </td>
+          <td data-l="Reported By">
+            <b>{{ i.reporter_name }}</b>
+            <div class="small mute">{{ i.reporter_phone or i.reporter_email }}</div>
+          </td>
+          <td data-l="Pair & Partner">
+            {% if i.pair_id %}
+              <div><span class="pill blue" style="font-size:.75rem">Pair #{{ i.pair_id }}</span></div>
+              <div style="font-weight:600; margin-top:.2rem">{{ i.partner_name }}</div>
+              <div class="small mute">{{ i.partner_phone }}</div>
+              {% if i.partner_wa and tab != 'resolved' and i.kind == 'partner_no_show' %}
+              <div style="margin-top:.3rem">
+                <a class="btn sm" href="https://wa.me/{{ i.partner_wa }}?text=Hi+{{ i.partner_name.split()[0] }},+your+partner+{{ i.reporter_name.split()[0] }}+is+waiting+for+you+to+record+script+{{ i.script_code }}.+Please+join+the+session." target="_blank" rel="noopener" style="background:#25D366; color:#fff; border-color:#25D366; font-size:.78rem; font-weight:600; padding:.2rem .5rem; display:inline-flex; align-items:center; gap:4px; text-decoration:none">
+                  💬 WhatsApp Partner
+                </a>
+              </div>
+              {% endif %}
+            {% else %}
+              <span class="mute">—</span>
+            {% endif %}
+          </td>
+          <td data-l="Script">
+            {% if i.script_code and i.script_code != '—' %}
+              <b>{{ i.script_code }}</b>
+              <div class="small mute">{{ i.subdomain or i.domain }}</div>
+              {% if i.script_id %}
+              <div style="margin-top:.2rem"><a href="/admin/script/{{ i.script_id }}" class="small" target="_blank">View Script &rarr;</a></div>
+              {% endif %}
+            {% else %}
+              <span class="mute">—</span>
+            {% endif %}
+          </td>
+          <td data-l="Description" style="max-width:320px">
+            <div style="background:rgba(255,255,255,0.03); border-left:3px solid var(--acc); padding:.4rem .6rem; border-radius:4px; font-size:.9rem">
+              {{ i.note or 'No description entered.' }}
+            </div>
+          </td>
+          <td data-l="Reported At" class="small mute">
+            {{ i.created|ist }}
+          </td>
+          <td class="act">
+            {% if tab != 'resolved' %}
+              <div class="row" style="gap:.4rem; justify-content:flex-end; flex-wrap:wrap">
+                <form method="post" action="/team/issue/{{ i.id }}/resolve" class="inline">
+                  <input type="hidden" name="csrf" value="{{ csrf }}">
+                  <input type="hidden" name="next" value="/team/issues?lang={{ L.id }}&tab=open&kind={{ kind_filter }}">
+                  <button class="btn sm ok" style="font-weight:600">✓ Resolve</button>
+                </form>
+                {% if i.assignment_id and can %}
+                <form method="post" action="/team/assignment/{{ i.assignment_id }}/release" class="inline" onsubmit="return confirm('Release script {{ i.script_code }}? It will return to available stock for reassignment.')">
+                  <input type="hidden" name="csrf" value="{{ csrf }}">
+                  <input type="hidden" name="next" value="/team/issues?lang={{ L.id }}&tab=open&kind={{ kind_filter }}">
+                  <button class="btn sm bad" style="font-weight:600">Release</button>
+                </form>
+                {% endif %}
+              </div>
+            {% else %}
+              <div class="row" style="gap:.4rem; justify-content:flex-end; align-items:center">
+                <span class="pill ok">Resolved</span>
+                {% if can %}
+                <form method="post" action="/team/issue/{{ i.id }}/reopen" class="inline">
+                  <input type="hidden" name="csrf" value="{{ csrf }}">
+                  <input type="hidden" name="next" value="/team/issues?lang={{ L.id }}&tab=resolved&kind={{ kind_filter }}">
+                  <button class="btn sm">Reopen</button>
+                </form>
+                {% endif %}
+              </div>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="8" class="mute" style="text-align:center; padding:2rem">
+            {{ '🎉 No open issues! Everything is running smoothly.' if tab != 'resolved' else 'No resolved issue records.' }}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

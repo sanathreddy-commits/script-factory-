@@ -1,0 +1,176 @@
+{% extends "base.html" %}
+{% block mainclass %}wide full-script{% endblock %}
+{% block body %}
+<style>
+  /* Distraction-free clean document reader */
+  .shell .side { display: none !important; }
+  .shell .main.full-script {
+    max-width: 980px !important;
+    width: 100% !important;
+    margin: 0 auto !important;
+    padding: 1rem 1rem 4rem 1rem !important;
+  }
+  .script-canvas {
+    background: var(--card, #1e293b);
+    border: 1px solid var(--line, rgba(255, 255, 255, 0.12));
+    border-radius: 10px;
+    padding: 2.4rem 2.6rem;
+    font-size: calc(var(--fs, 1.2) * 1rem);
+    line-height: 1.9;
+    color: var(--ink, #f8fafc);
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+    margin-bottom: 2rem;
+  }
+  @media (max-width: 768px) {
+    .script-canvas {
+      padding: 1.4rem 1.2rem;
+      font-size: calc(var(--fs, 1.1) * 1rem);
+      line-height: 1.8;
+    }
+  }
+</style>
+
+<!-- Top Minimal Navigation & Control Bar -->
+<div class="card" style="margin-bottom:1.5rem; padding:1rem 1.4rem">
+  <div class="row" style="justify-content:space-between; align-items:center; flex-wrap:wrap; gap:.8rem">
+    <div class="row" style="align-items:center; gap:1rem; flex-wrap:wrap">
+      <a href="/me" class="btn sm" style="font-weight:600">← Back to Dashboard</a>
+      <div>
+        <div class="row" style="align-items:center; gap:.6rem">
+          <h1 style="margin:0; font-size:1.4rem">{{ s.code }}</h1>
+          <span class="pill {{ 'ok' if a.status=='CONFIRMED' else 'pri' }}">
+            {{ 'Completed' if a.status=='CONFIRMED' else 'Ready to Read' }}
+          </span>
+        </div>
+        <div class="small mute" style="margin-top:.2rem">
+          {{ s.subdomain }}{% if s.specialisation %} · {{ s.specialisation }}{% endif %}
+        </div>
+      </div>
+    </div>
+
+    <!-- Quick Font Size & Copy Controls -->
+    <div class="row" style="gap:.5rem; align-items:center; flex-wrap:wrap">
+      {% if client_url %}
+      <a href="{{ client_url }}" target="_blank" rel="noopener" class="btn sm" style="background:#2563eb; color:#fff; border-color:#3b82f6; font-weight:600">
+        🎙️ Open Recorder ↗
+      </a>
+      {% endif %}
+      <button class="btn sm" type="button" onclick="copyScriptText()" id="copy-btn" title="Copy script text">📋 Copy</button>
+      <div class="row" style="gap:.2rem; align-items:center; margin-left:.3rem">
+        <span class="small mute" style="font-weight:600">Size:</span>
+        <button class="btn sm" type="button" onclick="adjustFont(-0.1)" title="Smaller text">A−</button>
+        <button class="btn sm" type="button" onclick="adjustFont(0.1)" title="Larger text">A+</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Complete Full Script View (Clean, No Highlights, Ready to Read) -->
+<div class="script-canvas" id="script-text-container">{{ full_script_text }}</div>
+
+<!-- Total Recorded Time Box at End of Script -->
+{% if a.status == 'CONFIRMED' %}
+<div class="card" style="padding:2rem; background:rgba(16,185,129,0.12); border:1px solid var(--ok); border-radius:10px; text-align:center">
+  <div style="font-size:2.2rem; margin-bottom:.3rem">✅</div>
+  <h2 style="color:var(--ok); margin:0 0 .4rem 0">Recording Completed & Saved!</h2>
+  <div style="font-size:1.2rem; margin-bottom:1.2rem">
+    Total Recorded Time: <b style="color:#34d399; font-size:1.4rem">{{ a.conf_min }} minutes</b>
+  </div>
+  <div class="row" style="justify-content:center; gap:1rem; flex-wrap:wrap">
+    <a href="/me" class="btn pri big" style="font-weight:700">← Back to Dashboard / Next Script</a>
+    <button type="button" class="btn sm" onclick="document.getElementById('edit-time-form').style.display='block'">
+      ✏️ Change / Update Time
+    </button>
+  </div>
+  <div id="edit-time-form" style="display:none; margin-top:1.2rem; padding-top:1.2rem; border-top:1px solid rgba(255,255,255,0.1)">
+    <form method="post" action="/a/{{ a.id }}/save_time" class="row" style="justify-content:center; align-items:center; gap:.8rem; flex-wrap:wrap">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <label class="small mute" style="font-weight:600">Corrected Time (minutes):</label>
+      <input type="number" step="0.1" min="0.1" name="minutes" value="{{ a.conf_min }}" style="width:120px; font-size:1.2rem; padding:.4rem .6rem; text-align:center; font-weight:700" required>
+      <button type="submit" class="btn pri sm" style="font-weight:600">Update Time</button>
+    </form>
+  </div>
+</div>
+{% else %}
+<div class="card" style="padding:2rem; background:rgba(30,41,59,0.9); border:2px solid var(--acc); border-radius:10px">
+  <div class="row" style="align-items:center; gap:.8rem; margin-bottom:.6rem">
+    <span style="font-size:2rem">⏱️</span>
+    <div>
+      <h2 style="margin:0; font-size:1.35rem">Enter Total Recorded Time</h2>
+      <div class="small mute">
+        Check the total recorded duration displayed on your client recording page/recorder, enter it below, and click save.
+      </div>
+    </div>
+  </div>
+
+  <form method="post" action="/a/{{ a.id }}/save_time" style="margin-top:1.2rem">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <div class="row" style="align-items:center; gap:1rem; flex-wrap:wrap">
+      <div style="display:flex; align-items:center; gap:.6rem">
+        <input type="number" step="0.1" min="0.1" name="minutes" id="minutes-input" placeholder="e.g. 15.5" required autofocus
+               style="font-size:1.4rem; font-weight:700; width:150px; padding:.6rem .8rem; text-align:center; border-radius:8px; border:2px solid var(--acc); background:rgba(0,0,0,0.3); color:#fff">
+        <span style="font-size:1.15rem; font-weight:700; color:#94a3b8">minutes</span>
+      </div>
+      <button type="submit" class="btn pri big" style="padding:.75rem 1.8rem; font-size:1.15rem; font-weight:700; background:var(--ok); border-color:var(--ok); color:#fff">
+        💾 Save & Complete Recording
+      </button>
+    </div>
+    <div class="small mute" style="margin-top:.8rem">
+      💡 Example: If client recorder shows 15 mins 30 secs, enter <b>15.5</b> (or <b>15</b> for 15 mins).
+    </div>
+  </form>
+</div>
+{% endif %}
+
+<!-- Report an Issue (Unobtrusive) -->
+<div style="margin-top:1.8rem; text-align:center">
+  <details style="display:inline-block; text-align:left; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:8px; padding:.6rem 1rem">
+    <summary class="small mute" style="cursor:pointer; font-weight:600; color:#94a3b8">
+      ⚠️ Facing an issue? (Partner no-show, audio glitch, script error)
+    </summary>
+    <form method="post" action="/a/{{ a.id }}/issue" style="margin-top:.8rem; display:flex; flex-direction:column; gap:.6rem">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <select name="kind" style="padding:.4rem .6rem; border-radius:6px; font-size:0.9rem">
+        <option value="partner_no_show">Partner did not show up</option>
+        <option value="audio_problem">Audio quality problem</option>
+        <option value="script_error">Script error</option>
+        <option value="tech_failure">Recorder not working</option>
+        <option value="other">Other issue</option>
+      </select>
+      <input name="note" placeholder="Brief description of the problem..." style="padding:.4rem .6rem; border-radius:6px; font-size:0.9rem" required>
+      <button type="submit" class="btn sm" style="align-self:flex-start">Report to Lead</button>
+    </form>
+  </details>
+</div>
+
+<script>
+var curFs = parseFloat(localStorage.getItem('sf_fs') || '1.2');
+function applyFs() {
+  document.documentElement.style.setProperty('--fs', curFs);
+  localStorage.setItem('sf_fs', curFs);
+}
+applyFs();
+
+function adjustFont(delta) {
+  curFs = Math.max(0.8, Math.min(2.5, Math.round((curFs + delta) * 10) / 10));
+  applyFs();
+}
+
+function copyScriptText() {
+  var el = document.getElementById('script-text-container');
+  if (!el) return;
+  var text = el.innerText;
+  navigator.clipboard.writeText(text).then(function() {
+    var btn = document.getElementById('copy-btn');
+    if (btn) {
+      var old = btn.innerText;
+      btn.innerText = '✓ Copied!';
+      setTimeout(function() { btn.innerText = old; }, 2000);
+    }
+  });
+}
+</script>
+{% endblock %}

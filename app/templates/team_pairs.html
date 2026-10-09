@@ -1,0 +1,207 @@
+{% extends "base.html" %}
+{% block body %}
+<div class="pagehead">
+  <div>
+    <h1>{{ L.name }}: pairs</h1>
+    <div class="small mute">Manage speaker pairs, auto-matching, and pair history.</div>
+  </div>
+  {% if can and tab != 'history' %}
+  <form method="get" class="inline">
+    <input type="hidden" name="lang" value="{{ L.id }}">
+    <input type="number" name="propose" value="10" min="1" style="width:80px">
+    <button class="btn pri big">Auto Create Pairs</button>
+  </form>
+  {% endif %}
+</div>
+
+<!-- KPI Summary Cards -->
+<div class="grid g4" style="margin-bottom:1.5rem">
+  <div class="card" style="text-align:center; padding:1.2rem; border-left:4px solid var(--acc)">
+    <div class="kpi">{{ total_pairs }}</div>
+    <div class="small mute" style="font-weight:600; text-transform:uppercase; margin-top:.3rem">Total Pairs</div>
+  </div>
+  <div class="card" style="text-align:center; padding:1.2rem; border-left:4px solid var(--ok)">
+    <div class="kpi" style="color:var(--ok)">{{ active_pairs }}</div>
+    <div class="small mute" style="font-weight:600; text-transform:uppercase; margin-top:.3rem">Active Pairs</div>
+  </div>
+  <div class="card" style="text-align:center; padding:1.2rem; border-left:4px solid var(--warn)">
+    <div class="kpi" style="color:var(--warn)">{{ unpaired_count }}</div>
+    <div class="small mute" style="font-weight:600; text-transform:uppercase; margin-top:.3rem">Unpaired People</div>
+  </div>
+  <div class="card" style="text-align:center; padding:1.2rem; border-left:4px solid var(--bad)">
+    <div class="kpi" style="color:var(--bad)">{{ dropped_pairs }}</div>
+    <div class="small mute" style="font-weight:600; text-transform:uppercase; margin-top:.3rem">Dropped Pairs</div>
+  </div>
+</div>
+
+<!-- Tab Switcher: Active vs Dropped History -->
+<div class="row" style="margin-bottom:1rem; gap:.5rem">
+  <a href="/team/pairs?lang={{ L.id }}&tab=active" class="btn {{ 'pri' if tab != 'history' else '' }}" style="font-weight:600">
+    👥 Active Pairs ({{ active_pairs }})
+  </a>
+  <a href="/team/pairs?lang={{ L.id }}&tab=history" class="btn {{ 'pri' if tab == 'history' else '' }}" style="font-weight:600">
+    📜 History / Dropped Pairs ({{ dropped_pairs }})
+  </a>
+</div>
+
+{% if tab != 'history' %}
+
+  {% if proposals is not none %}
+  <div class="card">
+    <h2>Suggested pairs</h2>
+    <p class="small mute">Matched on overlapping availability, never someone they were paired with before.</p>
+    {% if proposals %}
+    <form method="post" action="/team/pairs/create">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <input type="hidden" name="lang" value="{{ L.id }}">
+      {% for p in proposals %}
+      <label class="row" style="color:var(--ink);border-bottom:1px solid var(--line);padding:.4rem 0">
+        <input type="checkbox" name="pair" value="{{ p.a.id }}-{{ p.b.id }}" checked>
+        <span>{{ p.a.name }} + {{ p.b.name }}</span>
+        <span class="pill {{ 'ok' if p.overlap else 'warn' }}">{{ p.overlap }} shared slots</span>
+      </label>
+      {% endfor %}
+      <button class="btn pri big" style="margin-top:.8rem">Confirm and Create Pairs</button>
+    </form>
+    {% else %}
+    <p class="mute">Not enough unpaired people.</p>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {% if can and loose|length>1 %}
+  <div class="card">
+    <h2>Pair manually</h2>
+    <form method="post" action="/team/pairs/create" class="row">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <input type="hidden" name="lang" value="{{ L.id }}">
+      <select name="manual_a" style="max-width:240px">
+        {% for p in loose %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}
+      </select>
+      <select name="manual_b" style="max-width:240px">
+        {% for p in loose %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}
+      </select>
+      <button class="btn">Create pair</button>
+    </form>
+  </div>
+  {% endif %}
+
+  <div class="card">
+    <div class="row" style="justify-content:space-between; align-items:center; margin-bottom:1rem; flex-wrap:wrap; gap:.8rem">
+      <div>
+        <h2 style="margin:0">Active Pairs (<span id="pairs-count">{{ pairs|length }}</span>)</h2>
+        <div class="small mute">Manage active speaker pairs and session progress.</div>
+      </div>
+
+      <div class="row" style="gap:.8rem; align-items:center; flex-wrap:wrap; flex:1; justify-content:flex-end">
+        <div style="position:relative; min-width:260px; max-width:380px; flex:1">
+          <input type="text" id="pairs-search" 
+                 placeholder="🔍 Search pair #, partner names..." 
+                 style="width:100%; padding:.5rem .9rem; padding-right:2.2rem; font-size:.9rem; border-radius:6px; background:var(--bg); border:1px solid var(--line)"
+                 oninput="sfFilterTable('pairs-search', 'pairs-table', 'pairs-count', 'pairs-nomatch')">
+          <button type="button" id="pairs-search-clear" onclick="sfClearFilter('pairs-search', 'pairs-table', 'pairs-count', 'pairs-nomatch')" 
+                  style="display:none; position:absolute; right:8px; top:50%; transform:translateY(-50%); background:none; border:none; color:#94a3b8; cursor:pointer; font-size:1.1rem; line-height:1; padding:0" title="Clear search">✕</button>
+        </div>
+        {% if can and pairs|length > 0 %}
+        <form method="post" action="/team/pairs/drop_all" onsubmit="return confirm('Are you sure you want to drop ALL active pairs? Unstarted scripts will return to the pool.')">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <input type="hidden" name="lang" value="{{ L.id }}">
+          <button class="btn bad sm">Drop All Pairs</button>
+        </form>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="tw">
+      <table class="stack" id="pairs-table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Partners</th>
+            <th>Status</th>
+            <th>Recorded Hours</th>
+            <th class="act">Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for p in pairs %}
+          <tr>
+            <td data-l="#"><b>#{{ p.id }}</b></td>
+            <td data-l="Partners">
+              <b>{{ p.an }}</b> + <b>{{ p.bn }}</b>
+              {% if p.lang_name %}<span class="pill gray">{{ p.lang_name }}</span>{% endif %}
+            </td>
+            <td data-l="Status"><span class="pill ok">{{ p.status }}</span></td>
+            <td data-l="Hours" class="mono">{{ used[p.id]|hrs }} / {{ L.cap_pair_min|hrs }}</td>
+            <td class="act">
+              {% if can %}
+              <form method="post" action="/team/pairs/{{ p.id }}/drop" class="inline" onsubmit="return confirm('Drop this pair? Unstarted scripts return to the pool.')">
+                <input type="hidden" name="csrf" value="{{ csrf }}">
+                <input name="reason" placeholder="reason" style="width:140px">
+                <button class="btn sm bad">Drop</button>
+              </form>
+              {% endif %}
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="5" class="mute">No active pairs. Use Auto Create Pairs or Pair manually above.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+{% else %}
+
+  <!-- Dropped / History Pairs Tab -->
+  <div class="card">
+    <div class="row" style="justify-content:space-between; align-items:center; margin-bottom:1rem; flex-wrap:wrap; gap:.8rem">
+      <div>
+        <h2 style="margin:0">Dropped Pairs History (<span id="pairs-count">{{ pairs|length }}</span>)</h2>
+        <div class="small mute">Archived records of previously dropped pairs.</div>
+      </div>
+      
+      <div style="position:relative; min-width:280px; max-width:420px; flex:1">
+        <input type="text" id="pairs-search" 
+               placeholder="🔍 Search pair #, partner names, reason..." 
+               style="width:100%; padding:.5rem .9rem; padding-right:2.2rem; font-size:.9rem; border-radius:6px; background:var(--bg); border:1px solid var(--line)"
+               oninput="sfFilterTable('pairs-search', 'pairs-table', 'pairs-count', 'pairs-nomatch')">
+        <button type="button" id="pairs-search-clear" onclick="sfClearFilter('pairs-search', 'pairs-table', 'pairs-count', 'pairs-nomatch')" 
+                style="display:none; position:absolute; right:8px; top:50%; transform:translateY(-50%); background:none; border:none; color:#94a3b8; cursor:pointer; font-size:1.1rem; line-height:1; padding:0" title="Clear search">✕</button>
+      </div>
+    </div>
+
+    <div class="tw">
+      <table class="stack" id="pairs-table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Partners</th>
+            <th>Status</th>
+            <th>Recorded Hours</th>
+            <th>Dropped Reason</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for p in pairs %}
+          <tr>
+            <td data-l="#"><b>#{{ p.id }}</b></td>
+            <td data-l="Partners">
+              <b>{{ p.an }}</b> + <b>{{ p.bn }}</b>
+              {% if p.lang_name %}<span class="pill gray">{{ p.lang_name }}</span>{% endif %}
+            </td>
+            <td data-l="Status"><span class="pill gray">{{ p.status }}</span></td>
+            <td data-l="Hours" class="mono">{{ used[p.id]|hrs }}</td>
+            <td data-l="Reason" class="small mute">{{ p.note or '—' }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="5" class="mute">No dropped pairs in history.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+{% endif %}
+
+{% endblock %}

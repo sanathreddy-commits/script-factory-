@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block mainclass %}narrow{% endblock %}
+{% block body %}
+<div class="card" style="max-width:420px;margin:8vh auto">
+  <h1>Sign in</h1><p class="mute">Enter your 8-character access code.</p>
+  {% if err %}<div class="flash {{ 'e' if not pending else 'e' }}">{{ err }}</div>{% endif %}
+  <form method="post" action="/{{ role }}/login" autocomplete="off">
+    <input name="code" value="{{ code or '' }}" placeholder="XXXX-XXXX" autofocus autocapitalize="characters" inputmode="text" maxlength="12" style="font-size:1.6rem;text-align:center;letter-spacing:.15em;min-height:58px">
+    <button class="btn pri big" style="margin-top:.8rem">Continue</button>
+  </form>
+</div>
+{% endblock %}

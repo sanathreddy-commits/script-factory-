@@ -1,0 +1,6 @@
+{% extends "base.html" %}
+{% block body %}
+<h1>Audit log</h1><p class="small mute">Immutable: the database refuses edits and deletes. Latest 400.</p>
+<div class="card"><div class="tw"><table class="stack"><thead><tr><th>When</th><th>Who</th><th>What</th><th>Detail</th></tr></thead><tbody>
+{% for r in rows %}<tr><td data-l="When" class="nowrap">{{ r.ts|ist }}</td><td data-l="Who">{{ r.actor }}</td><td data-l="What"><b>{{ r.action }}</b></td><td data-l="Detail" class="small">{{ r.detail }}</td></tr>{% endfor %}</tbody></table></div></div>
+{% endblock %}

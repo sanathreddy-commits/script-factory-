@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block body %}
+<div class="pagehead">
+  <div>
+    <h1>Script Generation Studio: {{ L.name }}</h1>
+    <div class="small mute">Generate scripts directly from a master script. Generated scripts are immediately READY.</div>
+  </div>
+</div>
+
+<div class="grid g2">
+  <div class="card">
+    <h2>1. Upload Master Script</h2>
+    <form method="post" action="/admin/language/{{ L.id }}/generate_upload" enctype="multipart/form-data">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <label>Master Script / Template (.txt)</label>
+      <input type="file" name="file" accept=".txt,.md" required>
+      <label>Topic / Domain</label>
+      <input type="text" name="domain" placeholder="e.g., Doctor Appointment" required>
+      <button class="btn pri" style="margin-top:.8rem">Upload Template</button>
+    </form>
+    
+    <div style="margin-top:2rem;">
+      <p class="small mute">OR Paste Template Text</p>
+      <form method="post" action="/admin/language/{{ L.id }}/generate_chat">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <label>Master Script Text</label>
+        <textarea name="prompt" placeholder="Paste your master script here..."></textarea>
+        <label>Number of variations to generate</label>
+        <input type="number" name="count" value="5" min="1" max="50">
+        <button class="btn pri" style="margin-top:.8rem">Generate Now</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Coverage summary</h2>
+    <div class="grid g2" style="gap:1rem; text-align:center;">
+      <div style="padding:1rem; border:1px solid var(--line); border-radius:8px;">
+        <div class="kpi">{{ d.get('READY',0) + d.get('APPROVED',0) }}</div>
+        <div class="small mute">Ready for Recording</div>
+      </div>
+      <div style="padding:1rem; border:1px solid var(--line); border-radius:8px;">
+        <div class="kpi">{{ a.get('ASSIGNED',0) + a.get('IN_SESSION',0) + a.get('SELF_REPORTED',0) }}</div>
+        <div class="small mute">In Progress (With Pairs)</div>
+      </div>
+      <div style="padding:1rem; border:1px solid var(--line); border-radius:8px; grid-column:span 2;">
+        <div class="kpi" style="color:var(--ok)">{{ a.get('CONFIRMED',0) }}</div>
+        <div class="small mute">Confirmed Recordings</div>
+      </div>
+    </div>
+    
+    <div style="margin-top:2rem;">
+      <h3>Recent Scripts</h3>
+      <table class="stack">
+        <thead><tr><th>Code</th><th>Domain</th><th>Status</th><th></th></tr></thead>
+        <tbody>
+          {% for s in recent_scripts %}
+          <tr>
+            <td>{{ s.code }}</td>
+            <td>{{ s.domain }}</td>
+            <td><span class="pill ok">{{ s.status }}</span></td>
+            <td><a href="/admin/script/{{ s.id }}">View</a></td>
+          </tr>
+          {% else %}
+          <tr><td colspan="4" class="mute">No scripts generated yet.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

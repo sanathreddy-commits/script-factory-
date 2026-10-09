@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block mainclass %}narrow{% endblock %}
+{% block body %}
+<div style="text-align:center; max-width:500px; margin:6vh auto 2.5rem;">
+  <h1 style="font-size:2.2rem; margin-bottom:.4rem;">Select Role</h1>
+</div>
+
+<div class="grid g3" style="max-width:760px; margin:0 auto; gap:1.2rem;">
+  <!-- 1. Admin -->
+  <a href="/admin/login" class="card" style="text-align:center; padding:2.2rem 1.2rem; text-decoration:none; color:inherit; display:flex; flex-direction:column; justify-content:space-between; align-items:center; border-top:4px solid var(--acc);">
+    <h2 style="font-size:1.35rem; margin-bottom:1.2rem; color:var(--ink);">Admin</h2>
+    <span class="btn pri" style="width:100%; justify-content:center; font-weight:600; padding:.6rem 1rem; pointer-events:none;">Login</span>
+  </a>
+
+  <!-- 2. Team Lead -->
+  <a href="/lead/login" class="card" style="text-align:center; padding:2.2rem 1.2rem; text-decoration:none; color:inherit; display:flex; flex-direction:column; justify-content:space-between; align-items:center; border-top:4px solid var(--acc);">
+    <h2 style="font-size:1.35rem; margin-bottom:1.2rem; color:var(--ink);">Team Lead</h2>
+    <span class="btn pri" style="width:100%; justify-content:center; font-weight:600; padding:.6rem 1rem; pointer-events:none;">Login</span>
+  </a>
+
+  <!-- 3. Speaker -->
+  <a href="/agent/login" class="card" style="text-align:center; padding:2.2rem 1.2rem; text-decoration:none; color:inherit; display:flex; flex-direction:column; justify-content:space-between; align-items:center; border-top:4px solid var(--ok);">
+    <h2 style="font-size:1.35rem; margin-bottom:1.2rem; color:var(--ink);">Speaker</h2>
+    <span class="btn pri" style="width:100%; justify-content:center; font-weight:600; padding:.6rem 1rem; pointer-events:none; background:var(--ok); border-color:var(--ok);">Login</span>
+  </a>
+</div>
+{% endblock %}

@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block mainclass %}narrow{% endblock %}
+{% block body %}
+<div class="card">
+  <h1>Access code for {{ row.name }}</h1>
+  <p class="mute">Share it only with this person. Viewing is logged.</p>
+  <div class="code">{{ code|fmtcode }}</div>
+  {% set msg = 'Your ScriptFactory access code: ' ~ (code|fmtcode) %}
+  <div class="row" style="margin-top:1rem">
+    {% if row.phone %}<a class="btn pri" href="https://wa.me/91{{ row.phone }}?text={{ msg|urlencode }}" target="_blank" rel="noopener">Send on WhatsApp</a>{% endif %}
+    {% if row.email %}<a class="btn" href="mailto:{{ row.email }}?subject=Your Script Factory Access Code&body={{ msg|urlencode }}">Send via Email</a>{% endif %}
+    <a class="btn" href="{{ next }}">Done</a>
+  </div>
+</div>
+{% endblock %}

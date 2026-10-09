@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block body %}
+<div class="pagehead"><div><h1>{{ L.name }}: exceptions</h1><div class="small mute">Only things that need a person. Everything else runs itself.</div></div></div>
+
+{% if devs %}<div class="card"><h2>New device requests ({{ devs|length }})</h2>
+  {% for d in devs %}<div class="row" style="justify-content:space-between;margin-bottom:.4rem"><span>{{ d.name }} is logging in from a new device</span>
+    {% if can %}<span class="row">
+    <form method="post" action="/team/device/{{ d.id }}/approve"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn sm pri">Approve</button></form>
+    <form method="post" action="/team/device/{{ d.id }}/deny"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn sm">Deny</button></form></span>{% endif %}</div>{% endfor %}</div>{% endif %}
+
+<div class="card"><h2>Pairs and scripts needing attention ({{ ex|length }})</h2>
+  {% if ex %}<div class="tw"><table class="stack"><thead><tr><th>Script</th><th>Type</th><th>Why</th><th>Pair</th><th></th></tr></thead><tbody>
+  {% for kind,a,why in ex %}<tr>
+    <td data-l="Script"><b>{{ a.code }}</b></td><td data-l="Type"><span class="pill {{ 'bad' if kind=='dispute' else 'warn' }}">{{ kind }}</span></td>
+    <td data-l="Why">{{ why }}</td><td data-l="Pair">#{{ a.pair_id }} {{ names[a.ua] }} + {{ names[a.ub] }}</td>
+    <td class="act">
+      {% if kind=='stalled' %}{% for uid in (a.ua,a.ub) %}{% if phones[uid] %}<a class="btn sm" target="_blank" rel="noopener" href="https://wa.me/91{{ phones[uid] }}?text={{ nudge.replace('{name}',names[uid].split()[0])|urlencode }}">Nudge {{ names[uid].split()[0] }}</a>{% endif %}{% endfor %}{% endif %}
+      {% if can %}
+        {% if kind=='dispute' %}<form method="post" action="/team/assignment/{{ a.id }}/confirm" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="next" value="/team"><button class="btn sm pri">Accept (unverified)</button></form>{% endif %}
+        {% if kind=='qc' %}<form method="post" action="/team/assignment/{{ a.id }}/redo" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="next" value="/team"><button class="btn sm pri">Redo</button></form>
+          <form method="post" action="/team/assignment/{{ a.id }}/qc_release" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="next" value="/team"><button class="btn sm">Release script</button></form>{% endif %}
+        {% if kind!='qc' %}<form method="post" action="/team/assignment/{{ a.id }}/release" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="next" value="/team"><button class="btn sm bad">Release</button></form>{% endif %}
+      {% endif %}</td></tr>{% endfor %}</tbody></table></div>
+  {% else %}<p class="mute">Nothing stalled.</p>{% endif %}</div>
+
+<div class="card"><h2>Open issues ({{ issues|length }})</h2>
+  {% for i in issues %}<div class="row" style="justify-content:space-between;border-bottom:1px solid var(--line);padding:.4rem 0">
+    <span><span class="pill warn">{{ i.kind.replace('_',' ') }}</span> {{ i.code or '' }} <span class="small mute">{{ i.note }} · {{ i.created|ist }}</span></span>
+    {% if can or user.role=='admin' %}<form method="post" action="/team/issue/{{ i.id }}/resolve"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn sm">Resolve</button></form>{% endif %}</div>
+  {% else %}<p class="mute">None.</p>{% endfor %}</div>
+
+<div class="card"><h2>Waiting for a partner ({{ no_pair|length }})</h2>
+  {% for p in no_pair %}<span class="pill gray" style="margin:2px">{{ p.name }}</span>{% else %}<p class="mute">Everyone is paired.</p>{% endfor %}
+  {% if no_pair|length>1 %}<p style="margin-bottom:0"><a class="btn sm" href="/team/pairs?lang={{ L.id }}&propose=10">Suggest pairs</a></p>{% endif %}</div>
+{% endblock %}

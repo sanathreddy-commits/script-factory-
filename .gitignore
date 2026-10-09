@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+scratch/
+patch*.py
+copy_dummy*.py
+data/db_backups/

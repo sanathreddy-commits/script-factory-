@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block mainclass %}narrow{% endblock %}
+{% block body %}
+<h1>New language</h1>
+<form method="post" action="/admin/language/new" class="card"><input type="hidden" name="csrf" value="{{ csrf }}">
+  <div class="grid g2"><div><label>Language</label><select name="preset">{% for k,v in presets.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select></div>
+    <div><label>Script view mode (Gate 0 answer)</label><select name="mode"><option value="read_aloud">Read aloud: full script</option><option value="conversation">Natural conversation: scenario only</option></select></div></div>
+  <div class="grid g3"><div><label>Pair cap (hours)</label><input name="cap_pair_h" type="number" step="0.5" value="7.5"></div>
+    <div><label>Person cap (hours)</label><input name="cap_person_h" type="number" step="0.5" value="15"></div>
+    <div><label>Deadline</label><input name="deadline" type="date"></div></div>
+  <h2 style="margin-top:1rem">Quotas</h2>
+  {% for s in subs %}<div class="row" style="margin-bottom:.3rem"><span style="flex:1">{{ s[0] }} · {{ s[1] }}</span><input name="q_{{ loop.index0 }}" type="number" value="{{ per }}" style="width:100px" min="0"></div>{% endfor %}
+  <label>Target (must equal the quota total, 9 × 167 = 1,503)</label><input name="target" type="number" value="1503">
+  <button class="btn pri" style="margin-top:1rem">Create</button>
+</form>
+{% endblock %}

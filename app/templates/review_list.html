@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block body %}
+<div class="pagehead"><div><h1>Review queue{% if L %}: {{ L.name }}{% endif %}</h1>
+  <div class="small mute">Reviewed so far: {{ stats.get('accept',0) }} accepted · {{ stats.get('fix',0) }} fixed · {{ stats.get('reject',0) }} rejected{% if paused %} · <span class="pill bad">generation paused</span>{% endif %}</div></div>
+  {% if rows %}<a class="btn pri" href="/review/{{ rows[0].id }}">Start with the first</a>{% endif %}</div>
+<div class="card"><div class="tw"><table class="stack"><thead><tr><th>Script</th><th>Sub-domain</th><th>Wave</th><th>Words</th><th>Why in review</th><th>Status</th></tr></thead><tbody>
+{% for s in rows %}<tr><td data-l="Script"><a href="/review/{{ s.id }}"><b>{{ s.code }}</b></a></td><td data-l="Sub-domain">{{ s.subdomain }}{{ ' · '~s.specialisation if s.specialisation }}</td>
+  <td data-l="Wave">{{ s.wave }}</td><td data-l="Words" class="mono">{{ s.words }}</td>
+  <td data-l="Why">{{ s.reject_reason or ('Wave 1 (100% checked)' if s.wave==1 else 'sampled or judge flagged') }}</td>
+  <td data-l="Status"><span class="pill {{ 'bad' if s.status=='NEEDS_HUMAN' else '' }}">{{ s.status }}</span></td></tr>
+{% else %}<tr><td colspan="6" class="mute">Queue is empty.</td></tr>{% endfor %}</tbody></table></div></div>
+{% endblock %}

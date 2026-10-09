@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>{% block title %}ScriptFactory{% endblock %}</title>
+<link rel="stylesheet" href="/static/style.css">
+</head><body>
+<input type="checkbox" id="navtoggle">
+<header class="top">
+  {% if user %}<label for="navtoggle" class="burger" aria-label="Menu">☰</label>{% endif %}
+  <span class="brand">ScriptFactory</span>
+  {% if user and user.role == 'admin' and langs %}
+  <form action="/set_language" method="post" class="inline" style="margin-left:.6rem">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="hidden" name="next" value="{{ path }}">
+    <select name="lang" onchange="this.form.submit()" style="min-height:32px;padding:.2rem .6rem;font-size:.85rem;font-weight:600;border-radius:6px;background:var(--card);color:var(--ink);border:1px solid var(--acc);cursor:pointer">
+      <option value="all" {% if L and L.id == 'all' %}selected{% endif %}>🌍 All Languages</option>
+      {% for l in langs %}
+      <option value="{{ l.id }}" {% if L and L.id == l.id %}selected{% endif %}>{{ l.name }}</option>
+      {% endfor %}
+    </select>
+  </form>
+  {% elif user and L %}
+  <span class="pill gray" style="margin-left:.6rem">{{ L.name }}</span>
+  {% endif %}
+  <span class="sp"></span>
+  {% if user %}<span class="small mute who">{{ user.name }} · {{ user.role }}</span>
+  <form method="post" action="/logout" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn sm">Log out</button></form>{% endif %}
+</header>
+<div class="shell">
+  {% if user and nav %}
+  <nav class="side">
+    {% for href,label in nav %}<a href="{{ href }}" class="{{ 'on' if path==href }}">{{ label }}</a>{% endfor %}
+  </nav>
+  {% endif %}
+  <main class="main {% block mainclass %}{% endblock %}">
+    {% if q.get('m') %}<div class="flash m">{{ q.get('m') }}</div>{% endif %}
+    {% if q.get('e') %}<div class="flash e">{{ q.get('e') }}</div>{% endif %}
+    {% block body %}{% endblock %}
+  </main>
+</div>
+<script src="/static/app.js"></script>
+</body></html>

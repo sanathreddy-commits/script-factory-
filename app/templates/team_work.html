@@ -1,0 +1,247 @@
+{% extends "base.html" %}
+{% block body %}
+<div class="pagehead">
+  <div>
+    <h1>{{ L.name }}: assignments</h1>
+    <div class="small mute">Track recording status and assign scripts to active speaker pairs.</div>
+  </div>
+</div>
+
+<!-- KPI Summary Cards -->
+<div class="grid g4" style="margin-bottom:1.5rem">
+  <div class="card" style="text-align:center; padding:1.2rem; border-left:4px solid var(--acc)">
+    <div class="kpi">{{ stock }}</div>
+    <div class="small mute" style="font-weight:600; text-transform:uppercase; margin-top:.3rem">Available Scripts</div>
+  </div>
+  <div class="card" style="text-align:center; padding:1.2rem; border-left:4px solid var(--warn)">
+    <div class="kpi" style="color:var(--warn)">{{ total_in_progress }}</div>
+    <div class="small mute" style="font-weight:600; text-transform:uppercase; margin-top:.3rem">In Progress</div>
+  </div>
+  <div class="card" style="text-align:center; padding:1.2rem; border-left:4px solid var(--ok)">
+    <div class="kpi" style="color:var(--ok)">{{ total_completed }}</div>
+    <div class="small mute" style="font-weight:600; text-transform:uppercase; margin-top:.3rem">Completed</div>
+  </div>
+  <div class="card" style="text-align:center; padding:1.2rem; border-left:4px solid var(--line)">
+    <div class="kpi">{{ pairs|length }}</div>
+    <div class="small mute" style="font-weight:600; text-transform:uppercase; margin-top:.3rem">Active Pairs</div>
+  </div>
+</div>
+
+<!-- 1-Click Bulk Assign -->
+{% if can and pairs|length > 0 %}
+<div class="card" style="background:var(--acc2); border-color:var(--acc); margin-bottom:1.5rem">
+  <h2>Bulk Assign to All Pairs</h2>
+  <p class="small mute" style="margin-bottom:.8rem">Automatically distribute scripts equally to every active pair in 1 click.</p>
+  <form method="post" action="/team/assign_all" class="row">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="hidden" name="lang" value="{{ L.id }}">
+    <label style="font-weight:600">Scripts per pair:</label>
+    <input type="number" name="n" value="3" min="1" max="20" style="width:80px">
+    <button class="btn pri">1-Click Bulk Assign</button>
+  </form>
+</div>
+{% endif %}
+
+<!-- Pairs Work Table -->
+<div class="card">
+  <div class="row" style="justify-content:space-between; align-items:center; margin-bottom:1rem; flex-wrap:wrap; gap:.8rem">
+    <div>
+      <h2 style="margin:0">Pairs & Assignment Status (<span id="work-count">{{ pairs|length }}</span>)</h2>
+      <div class="small mute">Track recording status and assign scripts to active speaker pairs.</div>
+    </div>
+    
+    <div style="position:relative; min-width:280px; max-width:420px; flex:1">
+      <input type="text" id="work-search" 
+             placeholder="🔍 Search pair #, partner names, status..." 
+             style="width:100%; padding:.5rem .9rem; padding-right:2.2rem; font-size:.9rem; border-radius:6px; background:var(--bg); border:1px solid var(--line)"
+             oninput="sfFilterTable('work-search', 'work-table', 'work-count', 'work-nomatch')">
+      <button type="button" id="work-search-clear" onclick="sfClearFilter('work-search', 'work-table', 'work-count', 'work-nomatch')" 
+              style="display:none; position:absolute; right:8px; top:50%; transform:translateY(-50%); background:none; border:none; color:#94a3b8; cursor:pointer; font-size:1.1rem; line-height:1; padding:0" title="Clear search">✕</button>
+    </div>
+  </div>
+
+  <div class="tw">
+    <table class="stack" id="work-table">
+      <thead>
+        <tr>
+          <th>Pair</th>
+          <th style="text-align:center">Assigned / In Progress</th>
+          <th style="text-align:center">Completed</th>
+          <th>Recorded Hours</th>
+          <th>Status</th>
+          <th>Assign</th>
+          <th>Details</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in pairs %}
+        <tr>
+          <td data-l="Pair">
+            <b>#{{ p.id }}</b> {{ p.an }} + {{ p.bn }}
+            {% if p.lang_name %}<span class="pill gray">{{ p.lang_name }}</span>{% endif %}
+          </td>
+          <td data-l="In Progress" style="text-align:center">
+            <span class="pill {{ 'warn' if info[p.id].in_progress > 0 or info[p.id].waiting > 0 else 'gray' }}" style="font-weight:700">
+              {{ info[p.id].open }}
+            </span>
+          </td>
+          <td data-l="Completed" style="text-align:center">
+            <span class="pill {{ 'ok' if info[p.id].completed > 0 else 'gray' }}" style="font-weight:700">
+              {{ info[p.id].completed }}
+            </span>
+          </td>
+          <td data-l="Hours" class="mono">{{ info[p.id].used|hrs }} / {{ L.cap_pair_min|hrs }}</td>
+          <td data-l="Status">
+            <span class="pill {{ 'ok' if info[p.id].status=='Completed' else 'warn' if info[p.id].status=='In Progress' else 'gray' }}" style="{{ 'background:#fef3c7;color:#d97706;' if info[p.id].status=='Idle' }}">
+              {{ info[p.id].status }}
+            </span>
+          </td>
+          <td class="act" data-l="Assign">
+            {% if can %}
+            <form method="post" action="/team/assign" class="inline">
+              <input type="hidden" name="csrf" value="{{ csrf }}">
+              <input type="hidden" name="pair" value="{{ p.id }}">
+              <input type="number" name="n" value="{{ S.sitting }}" min="1" max="20" style="width:65px">
+              <button class="btn sm pri">Assign</button>
+            </form>
+            {% endif %}
+          </td>
+          <td data-l="Details">
+            <button type="button" class="btn sm" onclick="openPairModal({{ p.id }})">
+              👁️ View Scripts ({{ info[p.id].total }})
+            </button>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7" class="mute">No active pairs found for this language.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Popup Modals for Each Pair (Rendered outside table) -->
+{% for p in pairs %}
+<div id="modal-{{ p.id }}" class="sf-modal-overlay" style="display:none; position:fixed; inset:0; z-index:9999; background:rgba(0,0,0,0.65); backdrop-filter:blur(3px); align-items:center; justify-content:center; padding:1.5rem" onclick="if(event.target === this) closePairModal({{ p.id }})">
+  <div class="card" style="width:100%; max-width:850px; max-height:85vh; overflow-y:auto; margin:auto; position:relative; box-shadow:0 20px 40px rgba(0,0,0,0.5); border:1px solid var(--acc)">
+    <button type="button" class="btn sm" style="position:absolute; top:1rem; right:1rem; border-radius:50%; width:34px; height:34px; padding:0; font-weight:700" onclick="closePairModal({{ p.id }})">✕</button>
+    
+    <div style="margin-right:2.5rem; margin-bottom:1rem">
+      <h2 style="margin:0 0 .3rem 0; font-size:1.25rem">
+        📜 Assigned Scripts: Pair #{{ p.id }} ({{ p.an }} + {{ p.bn }})
+      </h2>
+      <div class="small mute">Filter scripts by date. Default is current date (Today).</div>
+    </div>
+
+    <!-- Date Filter Toolbar inside Modal -->
+    <div class="row small" style="margin-bottom:1rem; gap:.6rem; align-items:center; background:var(--bg); padding:.6rem .8rem; border-radius:8px">
+      <span class="mute" style="font-weight:700">Date Filter:</span>
+      <button type="button" class="btn sm pri" id="btn-today-{{ p.id }}" onclick="filterModalDate({{ p.id }}, '{{ today_str }}')">📅 Today (Default)</button>
+      <button type="button" class="btn sm" id="btn-all-{{ p.id }}" onclick="filterModalDate({{ p.id }}, 'all')">📚 All History</button>
+      <input type="date" id="date-input-{{ p.id }}" value="{{ today_str }}" style="min-height:30px; padding:.1rem .5rem; font-size:.85rem; width:auto" onchange="filterModalDate({{ p.id }}, this.value)">
+    </div>
+
+    <!-- Modal Scripts Table -->
+    <div class="tw">
+      <table class="stack small">
+        <thead>
+          <tr>
+            <th>Script ID</th>
+            <th>Topic / Subdomain</th>
+            <th>Status</th>
+            <th>Duration</th>
+            <th>Assigned Time</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody id="tbody-{{ p.id }}">
+          {% for s in pair_scripts[p.id] %}
+          <tr class="modal-row-{{ p.id }}" data-date="{{ s.assigned_date }}">
+            <td><b>{{ s.code }}</b></td>
+            <td>{{ s.subdomain }}{{ ' · '~s.specialisation if s.specialisation }}</td>
+            <td>
+              <span class="pill {{ 'ok' if s.status=='CONFIRMED' else 'warn' if s.status in ('ASSIGNED','IN_SESSION') else 'bad' if s.status in ('DISPUTED','QC_FAIL') else 'gray' }}">
+                {{ s.status }}
+              </span>
+            </td>
+            <td class="mono">{{ s.min }} min</td>
+            <td class="small mute">{{ s.assigned_display }}</td>
+            <td class="act">
+              {% if can and s.status in ('ASSIGNED','IN_SESSION') %}
+              <form method="post" action="/team/assignment/{{ s.id }}/release" class="inline" onsubmit="return confirm('Release this script back to the pool?')">
+                <input type="hidden" name="csrf" value="{{ csrf }}">
+                <button class="btn sm bad">Release</button>
+              </form>
+              {% endif %}
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="6" class="mute">No scripts assigned to this pair yet.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <div id="no-match-{{ p.id }}" class="mute small" style="display:none; padding:1rem 0; text-align:center">
+      No scripts assigned on this specific date. Click <b>"All History"</b> to view older scripts for this pair.
+    </div>
+
+    <div style="margin-top:1.2rem; text-align:right">
+      <button type="button" class="btn sm" onclick="closePairModal({{ p.id }})">Close</button>
+    </div>
+  </div>
+</div>
+{% endfor %}
+
+<script>
+function openPairModal(pid) {
+  const modal = document.getElementById('modal-' + pid);
+  if (modal) {
+    modal.style.display = 'flex';
+    filterModalDate(pid, '{{ today_str }}');
+  }
+}
+
+function closePairModal(pid) {
+  const modal = document.getElementById('modal-' + pid);
+  if (modal) {
+    modal.style.display = 'none';
+  }
+}
+
+function filterModalDate(pid, targetDate) {
+  const rows = document.querySelectorAll('.modal-row-' + pid);
+  const btnToday = document.getElementById('btn-today-' + pid);
+  const btnAll = document.getElementById('btn-all-' + pid);
+  const dateInput = document.getElementById('date-input-' + pid);
+  const noMatch = document.getElementById('no-match-' + pid);
+  
+  if (targetDate === 'all') {
+    if (btnToday) btnToday.classList.remove('pri');
+    if (btnAll) btnAll.classList.add('pri');
+  } else if (targetDate === '{{ today_str }}') {
+    if (btnToday) btnToday.classList.add('pri');
+    if (btnAll) btnAll.classList.remove('pri');
+    if (dateInput) dateInput.value = '{{ today_str }}';
+  } else {
+    if (btnToday) btnToday.classList.remove('pri');
+    if (btnAll) btnAll.classList.remove('pri');
+  }
+  
+  let visibleCount = 0;
+  rows.forEach(r => {
+    const rowDate = r.getAttribute('data-date');
+    if (targetDate === 'all' || rowDate === targetDate) {
+      r.style.display = '';
+      visibleCount++;
+    } else {
+      r.style.display = 'none';
+    }
+  });
+  
+  if (noMatch) {
+    noMatch.style.display = (visibleCount === 0 && rows.length > 0) ? 'block' : 'none';
+  }
+}
+</script>
+{% endblock %}
