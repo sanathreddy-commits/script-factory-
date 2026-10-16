@@ -287,15 +287,26 @@ class GoogleDriveClient:
                 import google.auth.transport.requests
                 creds = service_account.Credentials.from_service_account_info(
                     self.service_account_info,
-                    scopes=["https://www.googleapis.com/auth/drive"]
+                    scopes=[
+                        "https://www.googleapis.com/auth/drive",
+                        "https://www.googleapis.com/auth/spreadsheets",
+                    ],
                 )
                 req = google.auth.transport.requests.Request()
                 creds.refresh(req)
                 if creds.token:
                     headers["Authorization"] = f"Bearer {creds.token}"
                     return headers
-            except Exception:
-                pass
+            except ImportError as ex:
+                raise DriveAuthError(
+                    "google-auth library is not installed on the server. "
+                    "Add 'google-auth' to requirements.txt and redeploy."
+                ) from ex
+            except Exception as ex:
+                raise DriveAuthError(
+                    f"Service-account sign-in failed: {ex}. "
+                    "Check that the full JSON key was pasted (including the private_key)."
+                ) from ex
 
             # Fallback for Service Account client email header
             client_email = self.service_account_info.get("client_email")
@@ -316,7 +327,15 @@ class GoogleDriveClient:
                 "error": "Google Drive folder ID is not configured (GOOGLE_DRIVE_FOLDER_ID)."
             }
 
-        headers = self.get_auth_headers()
+        try:
+            headers = self.get_auth_headers()
+        except DriveAuthError as ex:
+            return {"success": False, "error": str(ex)}
+        if "Authorization" not in headers and not self.api_key:
+            return {
+                "success": False,
+                "error": "No valid credentials: paste the full service-account JSON key in the setup card.",
+            }
         params: Dict[str, str] = {
             "fields": "id,name,mimeType,trashed"
         }
