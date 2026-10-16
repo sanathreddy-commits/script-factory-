@@ -44,6 +44,7 @@ def gate(request: Request, *roles):
             raise Redirect("/admin/login")
         raise Redirect("/login")
 
+    ops.touch_seen(u)
     user_role = u["role"]
     allowed = list(roles)
     if "admin" in allowed:
@@ -57,6 +58,15 @@ def gate(request: Request, *roles):
         raise PermissionError("Your role cannot open this page.")
     request.state.csrf = csrf
     return u
+
+
+async def _post_form(request: Request, *roles):
+    """gate() plus the form and a CSRF check, for POST handlers."""
+    u = gate(request, *roles)
+    f = await request.form()
+    if f.get("csrf") != getattr(request.state, "csrf", None):
+        raise HTTPException(400, "Session expired. Reload the page and try again.")
+    return u, f
 
 
 import urllib.parse
@@ -2972,9 +2982,102 @@ async def code_login_route(request: Request):
     return render(request, "login.html", None, err=request.query_params.get("e", ""), role="agent", tab="L4", code=request.query_params.get("code", ""))
 
 
+_SECRET_KEYS = ("password", "pass", "key", "api_key", "access_token", "service_account", "service_account_json",
+                "credentials_json", "postgres_url", "supabase_key", "google_api_key")
+
+
+def _public_config(raw):
+    """Connection config with secrets replaced by a short hint, safe to embed in the page."""
+    try:
+        cfg = json.loads(raw or "{}")
+    except Exception:
+        return {}
+    if not isinstance(cfg, dict):
+        return {}
+    out = {}
+    for k, v in cfg.items():
+        if k in _SECRET_KEYS:
+            out[k + "_hint"] = email_service.key_hint(v if isinstance(v, str) else json.dumps(v)) if v else ""
+        else:
+            out[k] = v
+    return out
+
+
+_ROLE_GROUPS = (("Agents", ("participant", "agent")), ("Supervisors", ("lead", "supervisor", "reviewer")),
+                ("Admins", ("admin",)), ("Developers", ("developer",)))
+_ERROR_WORDS = ("fail", "error", "denied", "rejected", "unauthor", "blocked", "refused", "invalid")
+
+
+def _ago(ts, now):
+    s = max(0, int(now - (ts or 0)))
+    if s < 60:
+        return "just now"
+    if s < 3600:
+        return f"{s // 60} min ago"
+    if s < 86400:
+        return f"{s // 3600} h ago"
+    return f"{s // 86400} d ago"
+
+
+def _overview(c, conns):
+    """Plain-language system picture for the developer Overview tab: who is online, where data goes, what broke."""
+    now = time.time()
+    online_cut, today_cut = now - 300, now - 86400
+    people = []
+    for label, roles in _ROLE_GROUPS:
+        qs = ",".join("?" * len(roles))
+        r = c.execute(
+            f"SELECT COUNT(*) total, "
+            f"SUM(CASE WHEN COALESCE(last_seen,0)>? THEN 1 ELSE 0 END) online, "
+            f"SUM(CASE WHEN COALESCE(last_seen,0)>? THEN 1 ELSE 0 END) today "
+            f"FROM users WHERE active=1 AND role IN ({qs})", (online_cut, today_cut, *roles)).fetchone()
+        people.append({"label": label, "total": r["total"] or 0, "online": r["online"] or 0, "today": r["today"] or 0})
+    role_name = {r: label[:-1] for label, roles in _ROLE_GROUPS for r in roles}
+    online_list = [{
+        "name": r["name"], "role": role_name.get(r["role"], r["role"]), "lang": r["lang"] or "-",
+        "ago": _ago(r["last_seen"], now)}
+        for r in c.execute(
+            "SELECT u.name, u.role, u.last_seen, l.name lang FROM users u LEFT JOIN languages l ON l.id=u.language_id "
+            "WHERE u.active=1 AND COALESCE(u.last_seen,0)>? ORDER BY u.last_seen DESC LIMIT 40", (online_cut,)).fetchall()]
+
+    def conn_status(*words):
+        for cn in conns:
+            hay = (cn["name"] + " " + cn["service"]).lower()
+            if any(w in hay for w in words):
+                return {"ok": cn["status"] == "Connected", "status": cn["status"], "tested": cn["last_tested_str"]}
+        return {"ok": False, "status": "Not set up", "tested": "Never"}
+
+    pg = config.using_postgres()
+    flow = {
+        "users": sum(p["online"] for p in people),
+        "db": {"ok": True, "name": "Supabase Postgres" if pg else "SQLite file on the server",
+               "note": "Main database in the cloud. Survives redeploys." if pg else
+                       "Data is in a file on the Render server. A redeploy can wipe it unless Supabase backup is on."},
+        "drive": conn_status("drive"),
+        "sheets": conn_status("sheet"),
+        "email": conn_status("email"),
+        "supabase": conn_status("supabase"),
+    }
+    week = now - 7 * 86400
+    like = " OR ".join("lower(message) LIKE ?" for _ in _ERROR_WORDS)
+    errors = [{
+        "when": datetime.fromtimestamp(r["ts"], IST).strftime("%d %b %H:%M") if r["ts"] else "-",
+        "area": (r["category"] or "app").title(), "message": (r["message"] or "")[:300],
+        "detail": (r["detail"] or "")[:600]}
+        for r in c.execute(f"SELECT ts, category, message, detail FROM app_logs WHERE ts>? AND ({like}) "
+                           "ORDER BY id DESC LIMIT 40", (week, *[f"%{w}%" for w in _ERROR_WORDS])).fetchall()]
+    broken = [cn for cn in conns if cn["status"] != "Connected"]
+    emails = c.execute("SELECT SUM(CASE WHEN message LIKE 'Email delivered%' THEN 1 ELSE 0 END) sent, "
+                       "SUM(CASE WHEN message LIKE 'Email failed%' THEN 1 ELSE 0 END) failed "
+                       "FROM app_logs WHERE category='email' AND ts>?", (today_cut,)).fetchone()
+    return {"people": people, "online_list": online_list, "flow": flow, "errors": errors, "broken": broken,
+            "emails_sent": emails["sent"] or 0, "emails_failed": emails["failed"] or 0,
+            "now_str": datetime.fromtimestamp(now, IST).strftime("%d %b %H:%M")}
+
+
 @router.get("/developer")
 @router.get("/dev/{tab}")
-async def developer_panel_get(request: Request, tab: str = "connections"):
+async def developer_panel_get(request: Request, tab: str = "overview"):
     if tab == "login":
         return await dev_login_route(request)
     u = gate(request, "developer")
@@ -2985,7 +3088,7 @@ async def developer_panel_get(request: Request, tab: str = "connections"):
             with db.tx() as tx_c:
                 now = time.time()
                 tx_c.execute("INSERT OR IGNORE INTO connections(name, service, status, last_tested, config) VALUES(?,?,?,?,?)",
-                             ("Email Service", "Email Service", "Connected", now, '{}'))
+                             ("Email Service", "Email Service", "Not set up", now, '{}'))
 
         conns_raw = c.execute("SELECT * FROM connections ORDER BY id ASC").fetchall()
         conns = []
@@ -2997,8 +3100,10 @@ async def developer_panel_get(request: Request, tab: str = "connections"):
                 "service": row["service"],
                 "status": row["status"],
                 "last_tested_str": lt_str,
-                "config_json": row["config"] or "{}"
+                "config_json": json.dumps(_public_config(row["config"])),
             })
+        email_info = email_service.describe_config(c=c)
+        overview = _overview(c, conns) if tab == "overview" else None
 
         keys_raw = c.execute("SELECT * FROM dev_keys ORDER BY id ASC").fetchall()
         api_keys = []
@@ -3120,6 +3225,8 @@ async def developer_panel_get(request: Request, tab: str = "connections"):
                       backups_list=backup_files,
                       drive_backups=drive_backups,
                       drive_configured=drive.is_configured(c=c),
+                      email_info=email_info,
+                      overview=overview,
                       logs_list=logs_list,
                       audit_logs=logs_list)
 
@@ -3313,7 +3420,7 @@ async def dev_conn_edit_post(request: Request, cid: int):
                     existing_cfg = json.loads(row["config"])
                 except Exception:
                     existing_cfg = {}
-            new_pass = (f.get("smtp_pass") or "").strip()
+            new_pass = email_service.clean_key(f.get("smtp_pass") or "")
             if not new_pass:
                 new_pass = existing_cfg.get("password") or ""
 
@@ -3363,16 +3470,12 @@ async def dev_conn_edit_post(request: Request, cid: int):
                 except Exception:
                     existing_cfg = {}
             cfg = dict(existing_cfg)
-            if f.get("folder_id") is not None:
-                cfg["folder_id"] = (f.get("folder_id") or "").strip()
-            if f.get("api_key") is not None:
-                cfg["api_key"] = (f.get("api_key") or "").strip()
-            if f.get("service_account_json") is not None:
-                cfg["service_account_json"] = (f.get("service_account_json") or "").strip()
-            if f.get("credentials_path") is not None:
-                cfg["credentials_path"] = (f.get("credentials_path") or "").strip()
-            if f.get("access_token") is not None:
-                cfg["access_token"] = (f.get("access_token") or "").strip()
+            if (f.get("folder_id") or "").strip():
+                cfg["folder_id"] = f.get("folder_id").strip()
+            # Secrets are never sent to the page, so a blank box means "keep the saved value".
+            for k in ("api_key", "service_account_json", "credentials_path", "access_token"):
+                if (f.get(k) or "").strip():
+                    cfg[k] = f.get(k).strip()
             c.execute("UPDATE connections SET name=?, service=?, config=? WHERE id=?", (name, service, json.dumps(cfg), cid))
             drive.save_drive_config(
                 folder_id=cfg.get("folder_id"),
@@ -3421,39 +3524,50 @@ _EMAIL_PROVIDER_HOST = {
 async def dev_email_setup_post(request: Request):
     """One-screen email provider setup. Pick a provider, paste the API key (or Gmail app
     password), set the sender. Brevo/Resend send over HTTPS (port 443) so they work on Render."""
-    u = gate(request, "developer")
-    f = await request.form()
+    u, f = await _post_form(request, "developer")
     provider = (f.get("provider") or "brevo").strip().lower()
-    api_key = (f.get("api_key") or "").strip()
+    api_key = email_service.clean_key(f.get("api_key") or "") if provider != "gmail" else (f.get("api_key") or "").strip()
     from_email = (f.get("from_email") or "").strip()
     from_name = (f.get("from_name") or "").strip()
     gmail_user = (f.get("gmail_user") or "").strip()
     host, port = _EMAIL_PROVIDER_HOST.get(provider, ("smtp-relay.brevo.com", 587))
+    with db.tx() as c:
+        current = email_service.get_email_config(c)
+    # Blank key box = keep the saved key (only if it belongs to the same provider).
+    if not api_key and current.get("password_source") == "saved" and \
+            email_service._detect_provider(current) == email_service._detect_provider({"host": host}):
+        api_key = current["password"]
+    if provider == "brevo" and api_key.startswith("xsmtpsib-"):
+        return back("/dev/connections", e=email_service.key_problem("brevo", api_key) + " Nothing was saved.")
     cfg = {
         "host": host,
         "port": port,
         "user": gmail_user if provider == "gmail" else "",
         "password": api_key,
-        "from_email": from_email or (gmail_user if provider == "gmail" else "notifications@scriptflow.com"),
+        "from_email": from_email or current.get("from_email") or (gmail_user if provider == "gmail" else "notifications@scriptflow.com"),
+        "from_name": from_name or current.get("from_name", ""),
         "tls": True,
     }
     with db.tx() as c:
         email_service.save_email_config(cfg, c=c)
-        if from_name:
-            db.set_setting(c, "smtp_from_name", from_name)
-        row = c.execute("SELECT id FROM connections WHERE service IN ('Email','Email Service') OR name LIKE '%Email%' ORDER BY id ASC LIMIT 1").fetchone()
-        if row:
-            c.execute("UPDATE connections SET status='Connected', config=? WHERE id=?", (json.dumps(cfg), row["id"]))
-        db.audit(c, u, "email_setup", f"provider={provider} host={host}")
-        db.log_app(c, "email", u, f"Email provider set to {provider}", f"host={host} from={cfg['from_email']}")
-    return back("/dev/connections", m=f"Email saved: {provider.title()}. Now send a test below to confirm it works.")
+        res = email_service.test_connection(c=c)
+        status = "Connected" if res.ok else "Disconnected"
+        c.execute("UPDATE connections SET status=?, last_tested=? WHERE service IN ('Email','Email Service') OR name LIKE '%Email%'",
+                  (status, time.time()))
+        db.audit(c, u, "email_setup", f"provider={provider} key={email_service.key_hint(api_key)} ok={res.ok}")
+        db.log_app(c, "email", u, f"Email provider set to {provider}: {status}", res.message)
+    if res.ok:
+        return back("/dev/connections", m=f"Email saved and verified. {res.message} Now send yourself a test email.")
+    return back("/dev/connections", e=f"Email settings saved, but the check failed: {res.message}")
 
 
 @router.post("/dev/email/verify")
 async def dev_email_verify_post(request: Request):
-    u = gate(request, "developer")
+    u, _ = await _post_form(request, "developer")
     with db.tx() as c:
         res = email_service.test_connection(c=c)
+        c.execute("UPDATE connections SET status=?, last_tested=? WHERE service IN ('Email','Email Service') OR name LIKE '%Email%'",
+                  ("Connected" if res.ok else "Disconnected", time.time()))
         db.log_app(c, "email", u, f"Email verify: {'ok' if res.ok else 'failed'}", res.message)
     if res.ok:
         return back("/dev/connections", m=f"Email key verified. {res.message}")

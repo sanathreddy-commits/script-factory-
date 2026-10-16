@@ -1,248 +1,397 @@
 {% extends "base.html" %}
-{% block title %}
-  {% if dv_tab == 'keys' %}DV2 Keys
-  {% elif dv_tab == 'admins' %}DV3 Admins
-  {% elif dv_tab == 'rules' %}DV4 Rules
-  {% elif dv_tab == 'backups' %}DV5 Backups
-  {% elif dv_tab == 'logs' %}DV6 Logs
-  {% else %}DV1 Connections{% endif %} · ScriptFlow
-{% endblock %}
+{% block title %}{% set dv_names = {'overview': 'Overview', 'connections': 'Connections', 'keys': 'API Keys', 'admins': 'Admins', 'rules': 'Rules & Limits', 'backups': 'Backups', 'logs': 'Logs'} %}{{ dv_names.get(dv_tab or 'overview', 'Developer') }} · ScriptFlow{% endblock %}
 
-{% block pagetitle %}
-  {% if dv_tab == 'keys' %}DV2 Keys
-  {% elif dv_tab == 'admins' %}DV3 Admins
-  {% elif dv_tab == 'rules' %}DV4 Rules
-  {% elif dv_tab == 'backups' %}DV5 Backups
-  {% elif dv_tab == 'logs' %}DV6 Logs
-  {% else %}DV1 Connections{% endif %}
-{% endblock %}
+{% block pagetitle %}{% set dv_names = {'overview': 'Overview', 'connections': 'Connections', 'keys': 'API Keys', 'admins': 'Admins', 'rules': 'Rules & Limits', 'backups': 'Backups', 'logs': 'Logs'} %}{{ dv_names.get(dv_tab or 'overview', 'Developer') }}{% endblock %}
 
 {% block content %}
-<!-- Developer Subtabs: DV1 Connections | DV2 Keys | DV3 Admins | DV4 Rules | DV5 Backups | DV6 Logs -->
-<div style="display:flex;gap:4px;border-bottom:1px solid var(--border);margin-bottom:16px;">
-  <a href="/dev/connections" class="btn {% if not dv_tab or dv_tab == 'connections' %}btn-primary{% else %}btn-secondary{% endif %} btn-sm">DV1 Connections</a>
-  <a href="/dev/keys" class="btn {% if dv_tab == 'keys' %}btn-primary{% else %}btn-secondary{% endif %} btn-sm">DV2 Keys</a>
-  <a href="/dev/admins" class="btn {% if dv_tab == 'admins' %}btn-primary{% else %}btn-secondary{% endif %} btn-sm">DV3 Admins</a>
-  <a href="/dev/rules" class="btn {% if dv_tab == 'rules' %}btn-primary{% else %}btn-secondary{% endif %} btn-sm">DV4 Rules</a>
-  <a href="/dev/backups" class="btn {% if dv_tab == 'backups' %}btn-primary{% else %}btn-secondary{% endif %} btn-sm">DV5 Backups</a>
-  <a href="/dev/logs" class="btn {% if dv_tab == 'logs' %}btn-primary{% else %}btn-secondary{% endif %} btn-sm">DV6 Logs</a>
+{% set dv_names = {'overview': 'Overview', 'connections': 'Connections', 'keys': 'API Keys', 'admins': 'Admins', 'rules': 'Rules & Limits', 'backups': 'Backups', 'logs': 'Logs'} %}
+<div style="display:flex;gap:4px;border-bottom:1px solid var(--border);margin-bottom:16px;flex-wrap:wrap;padding-bottom:8px;">
+  {% for key, label in dv_names.items() %}
+  <a href="/dev/{{ key }}" class="btn {% if (dv_tab or 'overview') == key %}btn-primary{% else %}btn-secondary{% endif %} btn-sm">{{ label }}</a>
+  {% endfor %}
 </div>
 
-{% if not dv_tab or dv_tab == 'connections' %}
+{% if dv_tab == 'overview' %}
   <!-- ========================================================
-       DV1 CONNECTIONS
-       Supabase, Google Drive, Google Sheets, Generation machine.
-       Each: status, last tested, Test button, Edit.
+       OVERVIEW: who is using the app, where data goes, what is broken.
        ======================================================== -->
-  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:8px;flex-wrap:wrap;">
+  <style>
+    .ov-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:18px}
+    .ov-stat{background:#fff;border:1px solid var(--border);border-radius:10px;padding:14px}
+    .ov-num{font-size:28px;font-weight:800;color:var(--text);line-height:1.1}
+    .ov-num small{font-size:13px;font-weight:600;color:#64748B}
+    .ov-lbl{font-size:12px;font-weight:700;color:#64748B;text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px}
+    .ov-sub{font-size:12px;color:#64748B;margin-top:4px}
+    .ov-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#10B981;margin-right:5px;box-shadow:0 0 0 3px #D1FAE5}
+    .ov-card{background:#fff;border:1px solid var(--border);border-radius:10px;padding:18px;margin-bottom:16px}
+    .ov-title{font-weight:700;font-size:15px;color:var(--text);margin-bottom:4px}
+    .ov-muted{font-size:12.5px;color:#64748B}
+    .ov-flow{display:flex;align-items:stretch;gap:0;flex-wrap:wrap;margin-top:14px}
+    .ov-node{flex:1;min-width:150px;border:1px solid var(--border);border-radius:10px;padding:12px;background:#F8FAFC;position:relative}
+    .ov-node b{display:block;font-size:13.5px;color:var(--text);margin-bottom:3px}
+    .ov-node span{font-size:12px;color:#475569;line-height:1.45;display:block}
+    .ov-arrow{display:flex;align-items:center;justify-content:center;padding:0 6px;color:#94A3B8;font-size:20px}
+    .ov-outs{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin-top:12px}
+    .ov-out{border:1px solid var(--border);border-radius:10px;padding:12px;background:#fff;border-left:4px solid #10B981}
+    .ov-out.bad{border-left-color:#DC2626;background:#FFFBFB}
+    .ov-out b{font-size:13.5px;color:var(--text)}
+    .ov-out span{display:block;font-size:12px;color:#475569;line-height:1.45;margin-top:3px}
+    .ov-tag{float:right;font-size:11px;font-weight:700;padding:2px 7px;border-radius:999px;background:#ECFDF5;color:#047857}
+    .ov-out.bad .ov-tag{background:#FEF2F2;color:#B91C1C}
+    .ov-err{border-top:1px solid #F1F5F9;padding:9px 0;font-size:12.5px}
+    .ov-err:first-child{border-top:0}
+    .ov-err-head{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}
+    .ov-err-when{color:#64748B;white-space:nowrap;font-size:12px}
+    .ov-err-area{font-size:11px;font-weight:700;background:#FEF2F2;color:#B91C1C;padding:1px 7px;border-radius:999px}
+    .ov-err details{margin-top:4px;color:#475569}
+    .ov-err pre{white-space:pre-wrap;word-break:break-all;background:#F8FAFC;border:1px solid #E2E8F0;border-radius:6px;padding:8px;font-size:11.5px;margin:6px 0 0}
+    .ov-cols{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:16px;align-items:start}
+    @media (max-width:1000px){.ov-cols{grid-template-columns:1fr}.ov-arrow{transform:rotate(90deg);width:100%;padding:4px 0}}
+  </style>
+
+  {% set o = overview %}
+  <div style="display:flex;justify-content:space-between;align-items:flex-end;gap:10px;flex-wrap:wrap;margin-bottom:14px;">
     <div>
-      <h2 style="margin:0;">DV1 External Connections</h2>
-      <span class="muted-text">Integration endpoints, cloud sync, and LLM inference engine</span>
+      <h2 style="margin:0;">How the system is doing</h2>
+      <span class="muted-text">As of {{ o.now_str }}. "Online" means active in the last 5 minutes.</span>
     </div>
-    <div style="display:flex;gap:8px;">
-      <form method="post" action="/dev/sheets/sync" style="margin:0;display:inline-block;">
-        <input type="hidden" name="csrf" value="{{ csrf }}">
-        <button type="submit" class="btn btn-primary btn-sm" style="display:inline-flex;align-items:center;gap:6px;">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/></svg>
-          Sync to Google Sheets
-        </button>
-      </form>
+    <a href="/dev/overview" class="btn btn-secondary btn-sm" style="text-decoration:none;">⟳ Refresh</a>
+  </div>
+
+  {% if o.broken %}
+  <div style="margin-bottom:14px;background:#FEF2F2;border:1px solid #FECACA;color:#991B1B;border-radius:8px;padding:10px 14px;font-size:13px;">
+    <strong>{{ o.broken|length }} connection{{ 's' if o.broken|length != 1 }} need{{ '' if o.broken|length != 1 else 's' }} attention:</strong>
+    {% for b in o.broken %}{{ b.name }} ({{ b.status }}){{ ', ' if not loop.last }}{% endfor %}.
+    <a href="/dev/connections">Open Connections</a> and press Test or Configure.
+  </div>
+  {% endif %}
+
+  <div class="ov-grid">
+    {% for p in o.people %}
+    <div class="ov-stat">
+      <div class="ov-lbl">{{ p.label }}</div>
+      <div class="ov-num">{% if p.online %}<span class="ov-dot"></span>{% endif %}{{ p.online }} <small>online</small></div>
+      <div class="ov-sub">{{ p.today }} active today · {{ p.total }} accounts</div>
+    </div>
+    {% endfor %}
+    <div class="ov-stat">
+      <div class="ov-lbl">Emails today</div>
+      <div class="ov-num">{{ o.emails_sent }} <small>sent</small></div>
+      <div class="ov-sub" {% if o.emails_failed %}style="color:#B91C1C;font-weight:600;"{% endif %}>{{ o.emails_failed }} failed</div>
     </div>
   </div>
 
-  <div class="table-container">
-    <table class="data-table">
-      <thead>
-        <tr>
-          <th>Service Name</th>
-          <th>Endpoint / Provider</th>
-          <th>Status</th>
-          <th>Last Tested</th>
-          <th style="text-align:right;">Actions</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for c in connections %}
-        <tr>
-          <td style="font-weight:700;">{{ c.name }}</td>
-          <td>{{ c.service }}</td>
-          <td>
-            {% if c.status == 'Connected' %}
-              <span class="status-badge status-accepted">{{ c.status }}</span>
-            {% else %}
-              <span class="status-badge status-limit">{{ c.status }}</span>
-            {% endif %}
-          </td>
-          <td>{{ c.last_tested_str }}</td>
-          <td style="text-align:right;">
-            <form method="post" action="/dev/connections/test/{{ c.id }}" style="display:inline-block;margin:0;">
-              <input type="hidden" name="csrf" value="{{ csrf }}">
-              <button type="submit" class="btn btn-secondary btn-sm" style="height:26px;padding:0 8px;">Test</button>
-            </form>
-            {% if c.service == 'Google Drive' %}
-            <form method="post" action="/dev/connections/backup/{{ c.id }}" style="display:inline-block;margin:0;">
-              <input type="hidden" name="csrf" value="{{ csrf }}">
-              <button type="submit" class="btn btn-primary btn-sm" style="height:26px;padding:0 8px;">Backup to Drive</button>
-            </form>
-            {% endif %}
-            {% if c.service == 'Supabase' %}
-            <form method="post" action="/dev/connections/sync/{{ c.id }}" style="display:inline-block;margin:0;">
-              <input type="hidden" name="csrf" value="{{ csrf }}">
-              <button type="submit" class="btn btn-primary btn-sm" style="height:26px;padding:0 8px;">Sync</button>
-            </form>
-            <form method="post" action="/dev/connections/restore/{{ c.id }}" style="display:inline-block;margin:0;" onsubmit="return confirm('Restore latest database from Supabase Storage? Current local database will be replaced.');">
-              <input type="hidden" name="csrf" value="{{ csrf }}">
-              <button type="submit" class="btn btn-secondary btn-sm" style="height:26px;padding:0 8px;">Restore</button>
-            </form>
-            {% elif c.service == 'Google Sheets' or 'sheet' in (c.service|lower) or 'sheet' in (c.name|lower) %}
-            <form method="post" action="/dev/connections/sync/{{ c.id }}" style="display:inline-block;margin:0;">
-              <input type="hidden" name="csrf" value="{{ csrf }}">
-              <button type="submit" class="btn btn-primary btn-sm" style="height:26px;padding:0 8px;">Sync Now</button>
-            </form>
-            {% endif %}
-            <button type="button" class="btn btn-secondary btn-sm" style="height:26px;padding:0 8px;" onclick='editConnModal({{ c.id }}, {{ c.name|tojson }}, {{ c.service|tojson }}, {{ c.config_json|tojson }})'>Edit</button>
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+  <div class="ov-card">
+    <div class="ov-title">Where the data goes</div>
+    <div class="ov-muted">Every action follows this path. Green boxes are working; red ones need fixing on the Connections page.</div>
+    <div class="ov-flow">
+      <div class="ov-node"><b>📱 People</b><span>Agents record on their phones. Supervisors and admins work in the browser. {{ o.flow.users }} online now.</span></div>
+      <div class="ov-arrow">➜</div>
+      <div class="ov-node"><b>🖥 ScriptFlow app</b><span>Runs on Render. Checks logins, assigns scripts, counts hours, receives proof photos.</span></div>
+      <div class="ov-arrow">➜</div>
+      <div class="ov-node"><b>🗄 Database</b><span><strong>{{ o.flow.db.name }}</strong>. {{ o.flow.db.note }}</span></div>
+    </div>
+    <div class="ov-muted" style="margin-top:14px;font-weight:600;">From the app, data is copied out to:</div>
+    <div class="ov-outs">
+      {% set f = o.flow %}
+      <div class="ov-out {{ '' if f.drive.ok else 'bad' }}"><span class="ov-tag">{{ f.drive.status }}</span><b>📁 Google Drive</b><span>Proof photos and database backups. Last tested {{ f.drive.tested }}.</span></div>
+      <div class="ov-out {{ '' if f.sheets.ok else 'bad' }}"><span class="ov-tag">{{ f.sheets.status }}</span><b>📊 Google Sheets</b><span>Readable copy of agents, pairs and progress for the team. Last tested {{ f.sheets.tested }}.</span></div>
+      {% set email_ok = f.email.ok and email_info.has_key %}
+      <div class="ov-out {{ '' if email_ok else 'bad' }}"><span class="ov-tag">{{ f.email.status if email_info.has_key else 'No key' }}</span><b>✉ Email ({{ email_info.provider_label }})</b><span>Sends access codes to agents. Last tested {{ f.email.tested }}.</span></div>
+      <div class="ov-out {{ '' if f.supabase.ok else 'bad' }}"><span class="ov-tag">{{ f.supabase.status }}</span><b>☁ Supabase storage</b><span>Safety copy of photos and the database. Last tested {{ f.supabase.tested }}.</span></div>
+    </div>
   </div>
 
-  <!-- Easy Email Delivery Setup (for bulk access-code emails) -->
-  <div class="card" id="emailSetupCard" style="margin-top:20px;max-width:760px;">
-    <div class="card-header">
-      <div>
-        <div class="card-title">Email Delivery Setup</div>
-        <span class="muted-text" style="font-size:12px;">Used to send access codes in bulk. Pick a provider, paste the key, set the sender, then send a test.</span>
+  <div class="ov-cols">
+    <div class="ov-card">
+      <div class="ov-title">Problems in the last 7 days</div>
+      <div class="ov-muted" style="margin-bottom:8px;">Newest first. Click a row for the full technical message. Full history is under <a href="/dev/logs">Logs</a>.</div>
+      {% for e in o.errors %}
+      <div class="ov-err">
+        <div class="ov-err-head"><span class="ov-err-when">{{ e.when }}</span><span class="ov-err-area">{{ e.area }}</span><span>{{ e.message }}</span></div>
+        {% if e.detail %}<details><summary>Details</summary><pre>{{ e.detail }}</pre></details>{% endif %}
       </div>
+      {% else %}
+      <div style="padding:14px 0;color:#047857;font-weight:600;">✓ No errors recorded in the last 7 days.</div>
+      {% endfor %}
     </div>
-    <div style="font-size:12px;color:#5E7877;background:#F8FAFC;border:1px solid #E2E8F0;border-radius:8px;padding:10px 12px;margin-bottom:14px;line-height:1.5;">
-      <strong>On Render, Gmail SMTP fails</strong> — Render Free blocks outbound SMTP ports (25/465/587), so Gmail (which only uses those ports) times out even with a valid app password. It works on your laptop because your laptop allows those ports. <strong>Fix: use Brevo</strong> (free, 300 emails/day) — it sends over HTTPS (port 443), which Render allows.<br>
-      <strong>Get a free Brevo key:</strong> sign up at brevo.com → <em>SMTP &amp; API</em> → <em>API Keys</em> → create one (starts with <code>xkeysib-</code>) → paste below. Verify your sender email in Brevo under <em>Senders</em>.
+    <div class="ov-card">
+      <div class="ov-title">Online now</div>
+      <div class="ov-muted" style="margin-bottom:8px;">Active in the last 5 minutes.</div>
+      {% if o.online_list %}
+      <table class="data-table">
+        <thead><tr><th>Name</th><th>Role</th><th>Language</th><th>Seen</th></tr></thead>
+        <tbody>
+          {% for p in o.online_list %}
+          <tr><td style="font-weight:600;">{{ p.name }}</td><td>{{ p.role }}</td><td>{{ p.lang }}</td><td class="muted-text">{{ p.ago }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <div class="muted-text" style="padding:10px 0;">Nobody else is online right now.</div>
+      {% endif %}
     </div>
-    <form method="post" action="/dev/email/setup">
+  </div>
+
+{% elif not dv_tab or dv_tab == 'connections' %}
+  <!-- ========================================================
+       CONNECTIONS
+       Status cards for every service, then setup cards (Email, Google Drive, email template).
+       Secrets are never written into this page: only short hints like xkeysib-…ab12.
+       ======================================================== -->
+  <style>
+    .dv-head{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+    .dv-head h2{margin:0}
+    .dv-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px;margin-bottom:22px}
+    .dv-conn{background:#fff;border:1px solid var(--border);border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:10px}
+    .dv-conn-top{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
+    .dv-conn-name{font-weight:700;font-size:14px;color:var(--text)}
+    .dv-conn-meta{font-size:12px;color:#64748B}
+    .dv-pill{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;padding:3px 8px;border-radius:999px;white-space:nowrap}
+    .dv-pill::before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor}
+    .dv-ok{background:#ECFDF5;color:#047857}
+    .dv-bad{background:#FEF2F2;color:#B91C1C}
+    .dv-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:auto}
+    .dv-actions form{margin:0}
+    .dv-actions .btn{height:28px;padding:0 10px;font-size:12px}
+    .dv-cols{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:16px;align-items:start}
+    @media (max-width:1000px){.dv-cols{grid-template-columns:1fr}}
+    .dv-card{background:#fff;border:1px solid var(--border);border-radius:10px;padding:18px;margin-bottom:16px}
+    .dv-card-head{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:4px}
+    .dv-card-title{font-weight:700;font-size:15px;color:var(--text)}
+    .dv-sub{font-size:12px;color:#64748B;margin-bottom:14px}
+    .dv-now{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:12.5px;background:#F8FAFC;border:1px solid #E2E8F0;border-radius:8px;padding:10px 12px;margin-bottom:14px}
+    .dv-now dt{color:#64748B}
+    .dv-now dd{margin:0;font-weight:600;color:var(--text);word-break:break-all}
+    .dv-warn{font-size:12.5px;line-height:1.5;background:#FFFBEB;border:1px solid #FDE68A;color:#92400E;border-radius:8px;padding:9px 12px;margin-bottom:14px}
+    .dv-row{display:flex;gap:12px;flex-wrap:wrap}
+    .dv-row > .form-group{flex:1;min-width:200px}
+    .dv-sep{border-top:1px solid var(--border);margin:16px 0 14px}
+    .dv-help{font-size:12.5px;color:#475569;line-height:1.6;margin-top:12px}
+    .dv-help summary{cursor:pointer;font-weight:600;color:var(--primary)}
+    .dv-help ol{margin:8px 0 0 18px;padding:0}
+    .dv-hint{font-size:11.5px;color:#64748B;display:block;margin-top:3px}
+  </style>
+
+  {% set ns = namespace(email_status='') %}
+  {% for c in connections %}{% if 'email' in (c.name|lower) or 'email' in (c.service|lower) %}{% set ns.email_status = c.status %}{% endif %}{% endfor %}
+
+  <div class="dv-head">
+    <div>
+      <h2>Connections</h2>
+      <span class="muted-text">Services the app talks to. Green means the last test passed. Click Test after changing anything.</span>
+    </div>
+    <form method="post" action="/dev/sheets/sync" style="margin:0;">
       <input type="hidden" name="csrf" value="{{ csrf }}">
-      <div class="form-group">
-        <label class="form-label" for="emProvider">Provider</label>
-        <select id="emProvider" name="provider" class="form-select" onchange="emProviderChange(this.value)">
-          <option value="brevo">Brevo — free, works on Render (recommended)</option>
-          <option value="resend">Resend — HTTPS API, works on Render</option>
-          <option value="sendgrid">SendGrid — HTTPS API, works on Render</option>
-          <option value="gmail">Gmail SMTP — local only, blocked on Render</option>
-        </select>
-      </div>
-      <div class="form-group" id="emGmailUserWrap" style="display:none;">
-        <label class="form-label" for="emGmailUser">Gmail address</label>
-        <input type="email" id="emGmailUser" name="gmail_user" class="form-input" placeholder="you@gmail.com">
-      </div>
-      <div class="form-group">
-        <label class="form-label" for="emKey"><span id="emKeyLabel">Brevo API key</span></label>
-        <input type="text" id="emKey" name="api_key" class="form-input" placeholder="xkeysib-..." autocomplete="off">
-      </div>
-      <div style="display:flex;gap:12px;flex-wrap:wrap;">
-        <div class="form-group" style="flex:1;min-width:220px;">
-          <label class="form-label" for="emFrom">Sender email (must be verified with the provider)</label>
-          <input type="email" id="emFrom" name="from_email" class="form-input" placeholder="notifications@yourdomain.com">
-        </div>
-        <div class="form-group" style="flex:1;min-width:180px;">
-          <label class="form-label" for="emFromName">Sender name (optional)</label>
-          <input type="text" id="emFromName" name="from_name" class="form-input" placeholder="ScriptFactory Team">
-        </div>
-      </div>
-      <div class="modal-actions" style="justify-content:flex-start;">
-        <button type="submit" class="btn btn-primary">Save Email Settings</button>
-      </div>
+      <button type="submit" class="btn btn-primary btn-sm">⟳ Sync to Google Sheets</button>
     </form>
-    <div style="border-top:1px solid var(--border);margin-top:14px;padding-top:14px;">
-      <form method="post" action="/dev/email/verify" style="display:inline;margin:0 0 10px;"><input type="hidden" name="csrf" value="{{ csrf }}"><button type="submit" class="btn btn-secondary btn-sm">Test connection (verify key)</button></form>
-      <form method="post" action="/dev/email/test" style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;">
-        <input type="hidden" name="csrf" value="{{ csrf }}">
-        <div class="form-group" style="margin:0;flex:1;min-width:240px;">
-          <label class="form-label" for="emTestTo">Send a test email to</label>
-          <input type="email" id="emTestTo" name="to" class="form-input" placeholder="your@email.com" required>
+  </div>
+
+  <div class="dv-grid">
+    {% for c in connections %}
+    {% set is_email = 'email' in (c.name|lower) or 'email' in (c.service|lower) %}
+    {% set is_drive = c.service == 'Google Drive' or 'drive' in (c.name|lower) %}
+    {% set is_supabase = c.service == 'Supabase' or 'supabase' in (c.name|lower) %}
+    {% set is_sheets = 'sheet' in (c.service|lower) or 'sheet' in (c.name|lower) %}
+    <div class="dv-conn">
+      <div class="dv-conn-top">
+        <div>
+          <div class="dv-conn-name">{{ c.name }}</div>
+          <div class="dv-conn-meta">{% if is_email and email_info %}{{ email_info.provider_label }}{% if email_info.key_hint %} · {{ email_info.key_hint }}{% endif %}{% else %}{{ c.service }}{% endif %}</div>
         </div>
-        <button type="submit" class="btn btn-secondary">Send test email</button>
-      </form>
+        <span class="dv-pill {{ 'dv-ok' if c.status == 'Connected' else 'dv-bad' }}">{{ c.status }}</span>
+      </div>
+      <div class="dv-conn-meta">Last tested: {{ c.last_tested_str }}</div>
+      <div class="dv-actions">
+        <form method="post" action="/dev/connections/test/{{ c.id }}">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <button type="submit" class="btn btn-secondary btn-sm">Test</button>
+        </form>
+        {% if is_drive %}
+        <form method="post" action="/dev/connections/backup/{{ c.id }}">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <button type="submit" class="btn btn-secondary btn-sm">Backup DB</button>
+        </form>
+        {% elif is_supabase %}
+        <form method="post" action="/dev/connections/sync/{{ c.id }}">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <button type="submit" class="btn btn-secondary btn-sm">Sync</button>
+        </form>
+        <form method="post" action="/dev/connections/restore/{{ c.id }}" onsubmit="return confirm('Restore the latest database from Supabase Storage? The current database will be replaced.');">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <button type="submit" class="btn btn-secondary btn-sm">Restore</button>
+        </form>
+        {% elif is_sheets %}
+        <form method="post" action="/dev/connections/sync/{{ c.id }}">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <button type="submit" class="btn btn-secondary btn-sm">Sync now</button>
+        </form>
+        {% endif %}
+        {% if is_email %}
+        <a href="#emailSetupCard" class="btn btn-primary btn-sm" style="text-decoration:none;display:inline-flex;align-items:center;">Configure</a>
+        {% elif is_drive %}
+        <a href="#driveSetupCard" class="btn btn-primary btn-sm" style="text-decoration:none;display:inline-flex;align-items:center;">Configure</a>
+        {% else %}
+        <button type="button" class="btn btn-primary btn-sm" onclick='editConnModal({{ c.id }}, {{ c.name|tojson }}, {{ c.service|tojson }}, {{ c.config_json|tojson }})'>Configure</button>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <div class="dv-cols">
+    <!-- ===== Email delivery ===== -->
+    <div>
+      <div class="dv-card" id="emailSetupCard">
+        <div class="dv-card-head">
+          <div class="dv-card-title">Email delivery</div>
+          {% if ns.email_status %}<span class="dv-pill {{ 'dv-ok' if ns.email_status == 'Connected' else 'dv-bad' }}">{{ ns.email_status }}</span>{% endif %}
+        </div>
+        <div class="dv-sub">Sends access codes to agents. Use Brevo: it works on Render (Gmail SMTP is blocked there).</div>
+
+        <dl class="dv-now">
+          <dt>Provider</dt><dd>{{ email_info.provider_label }}</dd>
+          <dt>API key</dt><dd>{% if email_info.has_key %}{{ email_info.key_hint }} <span style="font-weight:400;color:#64748B;">({{ email_info.key_source_label }})</span>{% else %}<span style="color:#B91C1C;">none saved</span>{% endif %}</dd>
+          <dt>Sender</dt><dd>{{ email_info.from_name or 'ScriptFlow' }} &lt;{{ email_info.from_email }}&gt;</dd>
+        </dl>
+
+        {% if email_info.key_problem and email_info.has_key %}
+        <div class="dv-warn">⚠ {{ email_info.key_problem }}</div>
+        {% endif %}
+        {% if email_info.key_source.startswith('env:') %}
+        <div class="dv-warn">⚠ The key comes from the Render environment variable <code>{{ email_info.key_source[4:] }}</code>, not from this page. If that is an old key, paste the new one below (a saved key wins), or update or delete the variable in Render → Environment.</div>
+        {% endif %}
+
+        <form method="post" action="/dev/email/setup" autocomplete="off">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <div class="form-group">
+            <label class="form-label" for="emProvider">Provider</label>
+            <select id="emProvider" name="provider" class="form-select" onchange="emProviderChange(this.value)">
+              <option value="brevo" {% if email_info.provider == 'brevo' or email_info.provider == 'smtp' %}selected{% endif %}>Brevo (recommended, 300 free emails/day)</option>
+              <option value="resend" {% if email_info.provider == 'resend' %}selected{% endif %}>Resend</option>
+              <option value="sendgrid" {% if email_info.provider == 'sendgrid' %}selected{% endif %}>SendGrid</option>
+              <option value="gmail">Gmail SMTP (only works on your laptop)</option>
+            </select>
+          </div>
+          <div class="form-group" id="emGmailUserWrap" style="display:none;">
+            <label class="form-label" for="emGmailUser">Gmail address</label>
+            <input type="email" id="emGmailUser" name="gmail_user" class="form-input" placeholder="you@gmail.com">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="emKey"><span id="emKeyLabel">Brevo API key</span></label>
+            <input type="password" id="emKey" name="api_key" class="form-input" autocomplete="new-password"
+                   placeholder="{% if email_info.has_key and email_info.key_source == 'saved' %}Leave blank to keep {{ email_info.key_hint }}{% else %}xkeysib-...{% endif %}">
+            <span class="dv-hint" id="emKeyHint">Must start with <code>xkeysib-</code>. A key starting with <code>xsmtpsib-</code> is an SMTP key and will not work.</span>
+          </div>
+          <div class="dv-row">
+            <div class="form-group">
+              <label class="form-label" for="emFrom">Sender email</label>
+              <input type="email" id="emFrom" name="from_email" class="form-input" value="{{ email_info.from_email if email_info.from_email != 'notifications@scriptflow.com' else '' }}" placeholder="you@yourdomain.com">
+              <span class="dv-hint">Must be a verified sender in your provider account.</span>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="emFromName">Sender name</label>
+              <input type="text" id="emFromName" name="from_name" class="form-input" value="{{ email_info.from_name }}" placeholder="Awign Team">
+            </div>
+          </div>
+          <button type="submit" class="btn btn-primary">Save &amp; verify</button>
+        </form>
+
+        <div class="dv-sep"></div>
+        <form method="post" action="/dev/email/test" style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;margin:0;">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <div class="form-group" style="margin:0;flex:1;min-width:220px;">
+            <label class="form-label" for="emTestTo">Send a test email to</label>
+            <input type="email" id="emTestTo" name="to" class="form-input" placeholder="your@email.com" required>
+          </div>
+          <button type="submit" class="btn btn-secondary">Send test</button>
+        </form>
+        <form method="post" action="/dev/email/verify" style="margin:10px 0 0;">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <button type="submit" class="btn btn-secondary btn-sm">Re-check saved key</button>
+        </form>
+
+        <details class="dv-help">
+          <summary>How to get a working Brevo API key</summary>
+          <ol>
+            <li>Log in at brevo.com → your name (top right) → <strong>SMTP &amp; API</strong>.</li>
+            <li>Open the <strong>API Keys</strong> tab (not the SMTP tab) → <strong>Generate a new API key</strong>. It starts with <code>xkeysib-</code>.</li>
+            <li>Copy it straight away (Brevo shows it only once), paste it above, click <strong>Save &amp; verify</strong>.</li>
+            <li>Senders, Domains &amp; Dedicated IPs → <strong>Senders</strong>: add and verify the sender email you entered above.</li>
+            <li>If you see an IP address error: Security → <strong>Authorised IPs</strong> → turn the restriction off (Render's IP changes).</li>
+          </ol>
+        </details>
+      </div>
+    </div>
+
+    <!-- ===== Right column: Drive + template ===== -->
+    <div>
+      <div class="dv-card" id="driveSetupCard">
+        <div class="dv-card-title">Google Drive storage</div>
+        <div class="dv-sub">Proof photos and database backups go to this Drive folder. Share the folder with the service account's email as Editor.</div>
+        <form method="post" action="/dev/drive/setup" autocomplete="off">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <div class="form-group">
+            <label class="form-label" for="drvFolder">Drive folder ID</label>
+            <input type="text" id="drvFolder" name="folder_id" class="form-input" placeholder="1AbCdEf… (the part after /folders/ in the folder link)" value="{{ (rules.google_drive_folder_id if rules is defined else '') or '' }}">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="drvJson">Service account JSON</label>
+            <textarea id="drvJson" name="service_account_json" class="form-input" rows="4" style="font-family:monospace;height:auto;padding:10px;font-size:12px;" placeholder='{% if drive_configured %}Saved. Leave blank to keep it.{% else %}{ "type": "service_account", ... }{% endif %}'></textarea>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button type="submit" class="btn btn-primary">Save</button>
+          </div>
+        </form>
+        <form method="post" action="/dev/drive/test" style="margin:10px 0 0;"><input type="hidden" name="csrf" value="{{ csrf }}"><button type="submit" class="btn btn-secondary btn-sm">Test Drive</button></form>
+      </div>
+
+      <div class="dv-card" id="emailTemplateCard">
+        <div class="dv-card-head">
+          <div class="dv-card-title">Access code email</div>
+          <button type="button" class="btn btn-secondary btn-sm" onclick="resetDefaultEmailTemplate('connEmailSubj', 'connEmailBody')">Reset default</button>
+        </div>
+        <div class="dv-sub">Placeholders: <code>{name}</code>, <code>{code}</code>, <code>{portal_url}</code></div>
+        <form method="post" action="/dev/email_template/update">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <div class="form-group">
+            <label class="form-label" for="connEmailSubj">Subject</label>
+            <input type="text" id="connEmailSubj" name="email_subject_template" class="form-input" value="{{ rules.email_subject_template }}" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="connEmailBody">Body</label>
+            <textarea id="connEmailBody" name="email_body_template" class="form-input" rows="7" style="font-family:monospace;line-height:1.5;height:auto;padding:10px;font-size:12.5px;" required>{{ rules.email_body_template }}</textarea>
+          </div>
+          <button type="submit" class="btn btn-primary">Save template</button>
+        </form>
+      </div>
     </div>
   </div>
+
   <script>
   function emProviderChange(v){
     document.getElementById('emGmailUserWrap').style.display = (v==='gmail')?'block':'none';
     var lbl={brevo:'Brevo API key',resend:'Resend API key',sendgrid:'SendGrid API key',gmail:'Gmail app password'}[v]||'API key';
-    var ph={brevo:'xkeysib-...',resend:'re_...',sendgrid:'SG....',gmail:'16-char app password'}[v]||'';
+    var hint={brevo:'Must start with <code>xkeysib-</code>. A key starting with <code>xsmtpsib-</code> is an SMTP key and will not work.',
+              resend:'Starts with <code>re_</code>.', sendgrid:'Starts with <code>SG.</code>.',
+              gmail:'16-character app password from myaccount.google.com/apppasswords. Blocked on Render.'}[v]||'';
     document.getElementById('emKeyLabel').textContent=lbl;
-    document.getElementById('emKey').placeholder=ph;
+    document.getElementById('emKeyHint').innerHTML=hint;
   }
+  emProviderChange(document.getElementById('emProvider').value);
   </script>
-
-  <!-- Easy Google Drive Setup (primary image storage) -->
-  <div class="card" id="driveSetupCard" style="margin-top:20px;max-width:760px;">
-    <div class="card-header">
-      <div>
-        <div class="card-title">Google Drive Storage Setup</div>
-        <span class="muted-text" style="font-size:12px;">Proof photos are stored in Google Drive (15 GB free) and their links appear in the exported sheet. A safety copy also stays in Supabase.</span>
-      </div>
-    </div>
-    <div style="font-size:12px;color:#5E7877;background:#F8FAFC;border:1px solid #E2E8F0;border-radius:8px;padding:10px 12px;margin-bottom:14px;line-height:1.5;">
-      <strong>Setup (one time):</strong> In Google Cloud Console create a <em>Service Account</em> → create a JSON key → paste the whole JSON below. In Google Drive create a folder, share it with the service account's email (Editor), and paste the folder ID (the part of the folder URL after <code>/folders/</code>).
-    </div>
-    <form method="post" action="/dev/drive/setup">
-      <input type="hidden" name="csrf" value="{{ csrf }}">
-      <div class="form-group">
-        <label class="form-label" for="drvFolder">Drive folder ID</label>
-        <input type="text" id="drvFolder" name="folder_id" class="form-input" placeholder="1AbCdEf..." value="{{ (rules.google_drive_folder_id if rules is defined else '') or '' }}">
-      </div>
-      <div class="form-group">
-        <label class="form-label" for="drvJson">Service account JSON</label>
-        <textarea id="drvJson" name="service_account_json" class="form-input" rows="5" style="font-family:monospace;height:auto;padding:10px;" placeholder='{ "type": "service_account", "project_id": "...", ... }'></textarea>
-        <span class="muted-text" style="font-size:11px;">Leave blank to keep the saved key. It is stored server-side only.</span>
-      </div>
-      <div class="modal-actions" style="justify-content:flex-start;">
-        <button type="submit" class="btn btn-primary">Save Drive Settings</button>
-      </div>
-    </form>
-    <div style="border-top:1px solid var(--border);margin-top:14px;padding-top:14px;">
-      <form method="post" action="/dev/drive/test" style="display:inline;margin:0;"><input type="hidden" name="csrf" value="{{ csrf }}"><button type="submit" class="btn btn-secondary btn-sm">Test Drive</button></form>
-    </div>
-  </div>
-
-  <!-- Editable Access Code Email Subject & Body Template -->
-  <div class="card" id="emailTemplateCard" style="margin-top:20px;max-width:760px;">
-    <div class="card-header">
-      <div>
-        <div class="card-title">Access Code Email Template (Subject &amp; Body)</div>
-        <span class="muted-text" style="font-size:12px;">Used when sending access codes individually or to all active agents. Supported variables: <code>{name}</code>, <code>{code}</code>, <code>{portal_url}</code></span>
-      </div>
-      <button type="button" class="btn btn-secondary btn-sm" onclick="resetDefaultEmailTemplate('connEmailSubj', 'connEmailBody')">Reset Default</button>
-    </div>
-    <form method="post" action="/dev/email_template/update">
-      <input type="hidden" name="csrf" value="{{ csrf }}">
-      <div class="form-group">
-        <label class="form-label" for="connEmailSubj">Email Subject *</label>
-        <input type="text" id="connEmailSubj" name="email_subject_template" class="form-input" value="{{ rules.email_subject_template }}" required>
-      </div>
-      <div class="form-group">
-        <label class="form-label" for="connEmailBody">Email Body *</label>
-        <textarea id="connEmailBody" name="email_body_template" class="form-input" rows="8" style="font-family:monospace;line-height:1.5;height:auto;padding:10px;" required>{{ rules.email_body_template }}</textarea>
-      </div>
-      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
-        <span class="muted-text" style="font-size:12px;">Placeholders: <code>{name}</code> (Agent Name), <code>{code}</code> (Access Code), <code>{portal_url}</code> (Portal URL)</span>
-        <button type="submit" class="btn btn-primary">Save Email Template</button>
-      </div>
-    </form>
-  </div>
 
 
 {% elif dv_tab == 'keys' %}
   <!-- ========================================================
-       DV2 KEYS
+       KEYS
        Table (Name, Service, Added on, Status).
        Add Key: service, label, value.
        Values are write-only; after saving show only the last 4 characters, with Replace and Revoke.
        ======================================================== -->
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:8px;flex-wrap:wrap;">
     <div>
-      <h2 style="margin:0;">DV2 API Keys</h2>
+      <h2 style="margin:0;">API Keys</h2>
       <span class="muted-text">Write-only API keys for OpenRouter, LLMs, and cloud services</span>
     </div>
     <button type="button" class="btn btn-primary btn-sm" onclick="openAddKeyModal()">+ Add Key</button>
@@ -294,12 +443,12 @@
 
 {% elif dv_tab == 'admins' %}
   <!-- ========================================================
-       DV3 ADMINS
+       ADMINS
        List of Admins. Create Admin: name, login ID, password. Reset password, Suspend, Delete.
        ======================================================== -->
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:8px;flex-wrap:wrap;">
     <div>
-      <h2 style="margin:0;">DV3 Administrators</h2>
+      <h2 style="margin:0;">Administrators</h2>
       <span class="muted-text">Manage administrative access accounts</span>
     </div>
     <button type="button" class="btn btn-primary btn-sm" onclick="openCreateAdminModal()">+ Create Admin</button>
@@ -348,11 +497,11 @@
 
 {% elif dv_tab == 'rules' %}
   <!-- ========================================================
-       DV4 RULES
+       RULES
        Editable values: session min 5 and max 15 minutes, user limit 15 h, pair limit 7.5 h, client access URL, email subject & body.
        ======================================================== -->
   <div style="margin-bottom:12px;">
-    <h2 style="margin:0;">DV4 System Rules, Limits &amp; Email Template</h2>
+    <h2 style="margin:0;">System Rules, Limits &amp; Email Template</h2>
     <span class="muted-text">Core execution rules, session time bounds, portal access URLs, and access code email template</span>
   </div>
 
@@ -416,12 +565,12 @@
 
 {% elif dv_tab == 'backups' %}
   <!-- ========================================================
-       DV5 BACKUPS
+       BACKUPS
        Backup now, backup list, Restore (confirm).
        ======================================================== -->
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:8px;flex-wrap:wrap;">
     <div>
-      <h2 style="margin:0;">DV5 Database Backups</h2>
+      <h2 style="margin:0;">Database Backups</h2>
       <span class="muted-text">Snapshot backups and point-in-time restore</span>
     </div>
     <div style="display:flex;gap:6px;flex-wrap:wrap;">
@@ -478,11 +627,11 @@
 
 {% elif dv_tab == 'logs' %}
   <!-- ========================================================
-       DV6 LOGS
+       LOGS
        Tabs: Activity | Errors | Sync | Audit. Filters by date, user. Click a row to see full detail.
        ======================================================== -->
   <div style="margin-bottom:12px;">
-    <h2 style="margin:0;">DV6 System Logs</h2>
+    <h2 style="margin:0;">System Logs</h2>
     <span class="muted-text">Audit trail and system logs</span>
   </div>
 
@@ -520,7 +669,7 @@
 
 {% endif %}
 
-<!-- Add Key Modal (DV2) -->
+<!-- Add Key Modal -->
 <div id="addKeyModal" class="modal-overlay">
   <div class="modal-box">
     <div class="modal-title">Add Write-Only Key</div>
@@ -553,7 +702,7 @@
   </div>
 </div>
 
-<!-- Replace Key Modal (DV2) -->
+<!-- Replace Key Modal -->
 <div id="replaceKeyModal" class="modal-overlay">
   <div class="modal-box">
     <div class="modal-title" id="replaceKeyTitle">Replace Key</div>
@@ -572,7 +721,7 @@
   </div>
 </div>
 
-<!-- Create Admin Modal (DV3) -->
+<!-- Create Admin Modal -->
 <div id="createAdminModal" class="modal-overlay">
   <div class="modal-box">
     <div class="modal-title">Create Admin</div>
@@ -598,7 +747,7 @@
   </div>
 </div>
 
-<!-- Reset Password Modal (DV3) -->
+<!-- Reset Password Modal -->
 <div id="resetPwdModal" class="modal-overlay">
   <div class="modal-box">
     <div class="modal-title" id="resetPwdTitle">Reset Admin Password</div>
@@ -617,7 +766,7 @@
   </div>
 </div>
 
-<!-- Edit Connection Modal (DV1) -->
+<!-- Edit Connection Modal -->
 <div id="editConnModal" class="modal-overlay">
   <div class="modal-box" style="max-width:480px;">
     <div class="modal-title" id="editConnTitle">Edit Connection</div>
@@ -809,7 +958,7 @@ function editConnModal(id, name, service, configStr) {
     document.getElementById('smtpHost').value = cfg.host || (preset === 'resend' ? 'resend' : 'smtp.gmail.com');
     document.getElementById('smtpPort').value = cfg.port || (preset === 'smtp' ? 587 : 443);
     document.getElementById('smtpUser').value = cfg.user || (preset === 'resend' ? 'resend' : '');
-    document.getElementById('smtpPass').value = cfg.password || '';
+    document.getElementById('smtpPass').value = '';
     document.getElementById('smtpFrom').value = cfg.from_email || (preset === 'resend' ? 'onboarding@resend.dev' : 'notifications@scriptflow.com');
     document.getElementById('smtpTls').value = (cfg.tls !== false && cfg.tls !== 0 && cfg.tls !== '0') ? '1' : '0';
   } else {
@@ -822,10 +971,13 @@ function editConnModal(id, name, service, configStr) {
     supabaseSection.style.display = 'block';
     let cfg = {};
     try { if (configStr) cfg = typeof configStr === 'string' ? JSON.parse(configStr) : configStr; } catch(e){}
+    // Secrets never reach the page: show the saved hint as a placeholder, blank = keep.
     document.getElementById('supabaseUrl').value = cfg.url || cfg.supabase_url || '';
-    document.getElementById('supabaseKey').value = cfg.key || cfg.supabase_key || '';
+    document.getElementById('supabaseKey').value = '';
+    document.getElementById('supabaseKey').placeholder = cfg.key_hint ? ('Saved ' + cfg.key_hint + ' (leave blank to keep)') : 'eyJhbGci...';
     document.getElementById('supabaseBucket').value = cfg.bucket || cfg.supabase_bucket || 'factory-data';
-    document.getElementById('supabasePgUrl').value = cfg.postgres_url || cfg.supabase_postgres_url || '';
+    document.getElementById('supabasePgUrl').value = '';
+    document.getElementById('supabasePgUrl').placeholder = cfg.postgres_url_hint ? ('Saved ' + cfg.postgres_url_hint + ' (leave blank to keep)') : 'postgresql://...';
   } else {
     supabaseSection.style.display = 'none';
   }
@@ -837,8 +989,10 @@ function editConnModal(id, name, service, configStr) {
     let cfg = {};
     try { if (configStr) cfg = typeof configStr === 'string' ? JSON.parse(configStr) : configStr; } catch(e){}
     document.getElementById('sheetsSheetId').value = cfg.sheet_id || cfg.google_sheet_id || cfg.spreadsheet_id || '';
-    document.getElementById('sheetsApiKey').value = cfg.api_key || cfg.google_api_key || '';
-    document.getElementById('sheetsSa').value = typeof cfg.service_account === 'object' ? JSON.stringify(cfg.service_account, null, 2) : (cfg.service_account || cfg.service_account_json || '');
+    document.getElementById('sheetsApiKey').value = '';
+    document.getElementById('sheetsApiKey').placeholder = cfg.api_key_hint ? ('Saved ' + cfg.api_key_hint + ' (leave blank to keep)') : 'AIzaSy...';
+    document.getElementById('sheetsSa').value = '';
+    document.getElementById('sheetsSa').placeholder = (cfg.service_account_hint || cfg.service_account_json_hint) ? 'Saved. Leave blank to keep it.' : '{"type": "service_account", ...}';
   } else {
     sheetsSection.style.display = 'none';
   }
@@ -850,9 +1004,10 @@ function editConnModal(id, name, service, configStr) {
     let cfg = {};
     try { if (configStr) cfg = typeof configStr === 'string' ? JSON.parse(configStr) : configStr; } catch(e){}
     document.getElementById('driveFolderId').value = cfg.folder_id || '';
-    document.getElementById('driveServiceAccount').value = typeof cfg.service_account_json === 'object' ? JSON.stringify(cfg.service_account_json, null, 2) : (cfg.service_account_json || cfg.credentials_json || cfg.credentials_path || '');
-    document.getElementById('driveApiKey').value = cfg.api_key || '';
-    document.getElementById('driveAccessToken').value = cfg.access_token || '';
+    document.getElementById('driveServiceAccount').value = '';
+    document.getElementById('driveServiceAccount').placeholder = cfg.service_account_json_hint ? 'Saved. Leave blank to keep it.' : '{"type": "service_account", ...}';
+    document.getElementById('driveApiKey').value = '';
+    document.getElementById('driveAccessToken').value = '';
   } else {
     driveSection.style.display = 'none';
   }

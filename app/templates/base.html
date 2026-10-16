@@ -109,12 +109,13 @@
       {% endif %}
 
       {% if user.role == 'developer' %}
-        <div class="nav-heading">Developer (DV)</div>
+        <div class="nav-heading">Developer</div>
         <div class="nav-subgroup">
+          <a href="/dev/overview" class="nav-subitem {% if path in ('/dev/overview', '/developer') %}active{% endif %}">Overview</a>
           <a href="/dev/connections" class="nav-subitem {% if path == '/dev/connections' %}active{% endif %}">Connections</a>
-          <a href="/dev/keys" class="nav-subitem {% if path == '/dev/keys' %}active{% endif %}">Keys</a>
+          <a href="/dev/keys" class="nav-subitem {% if path == '/dev/keys' %}active{% endif %}">API Keys</a>
           <a href="/dev/admins" class="nav-subitem {% if path == '/dev/admins' %}active{% endif %}">Admins</a>
-          <a href="/dev/rules" class="nav-subitem {% if path == '/dev/rules' %}active{% endif %}">Rules</a>
+          <a href="/dev/rules" class="nav-subitem {% if path == '/dev/rules' %}active{% endif %}">Rules &amp; Limits</a>
           <a href="/dev/backups" class="nav-subitem {% if path == '/dev/backups' %}active{% endif %}">Backups</a>
           <a href="/dev/logs" class="nav-subitem {% if path == '/dev/logs' %}active{% endif %}">Logs</a>
         </div>

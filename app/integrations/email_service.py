@@ -104,22 +104,28 @@ def get_email_config(c=None) -> Dict[str, Any]:
         except Exception:
             pass
 
+    sources: Dict[str, str] = {}
+
     # Helper to resolve field in order: connections.config -> settings -> env -> default
     def _val(keys: List[str], env_var: str, default: Any) -> Any:
         # 1. From connections.config
         for k in keys:
             if k in cfg_conn and cfg_conn[k] not in (None, ""):
+                sources[keys[0]] = "saved"
                 return cfg_conn[k]
         # 2. From settings table
         for k in keys:
             lk = k.lower()
             if lk in cfg_settings and cfg_settings[lk] not in (None, ""):
+                sources[keys[0]] = "saved"
                 return cfg_settings[lk]
             if f"smtp_{lk}" in cfg_settings and cfg_settings[f"smtp_{lk}"] not in (None, ""):
+                sources[keys[0]] = "saved"
                 return cfg_settings[f"smtp_{lk}"]
         # 3. From environment variables
         env_val = os.environ.get(env_var)
         if env_val is not None and env_val != "":
+            sources[keys[0]] = f"env:{env_var}"
             return env_val
         # 4. Default
         return default
@@ -143,16 +149,94 @@ def get_email_config(c=None) -> Dict[str, Any]:
         tls = str(tls_raw).strip().lower() in ("1", "true", "yes", "on")
 
     fallback_host = os.environ.get("SMTP_FALLBACK_HOST", cfg_conn.get("fallback_host", ""))
+    from_name = str(cfg_conn.get("from_name") or cfg_settings.get("smtp_from_name") or "").strip()
 
     return {
         "host": host,
         "port": port,
         "user": user,
         "password": password,
+        "password_source": sources.get("password", "") if password else "",
         "from_email": from_email,
+        "from_name": from_name,
         "tls": tls,
         "fallback_host": fallback_host,
     }
+
+
+def clean_key(raw: str) -> str:
+    """Strip whitespace, line breaks and wrapping quotes that sneak in when a key is copied."""
+    k = re.sub(r"\s+", "", raw or "")
+    return k.strip("'\"`")
+
+
+def key_hint(key: str) -> str:
+    """Safe, recognisable preview of a secret: 'xkeysib-…ab12'."""
+    key = key or ""
+    if not key:
+        return ""
+    if len(key) <= 12:
+        return key[:3] + "…"
+    return key[:8] + "…" + key[-4:]
+
+
+def source_label(src: str) -> str:
+    if src == "saved":
+        return "saved in this app"
+    if src.startswith("env:"):
+        return f"Render environment variable {src[4:]}"
+    return "not set"
+
+
+def describe_config(cfg: Optional[Dict[str, Any]] = None, c=None) -> Dict[str, Any]:
+    """What the app will actually use to send email, safe to show on a page (no secrets)."""
+    cfg = cfg or get_email_config(c)
+    provider = _detect_provider(cfg)
+    pwd = cfg.get("password") or ""
+    return {
+        "provider": provider,
+        "provider_label": {"brevo": "Brevo", "resend": "Resend", "sendgrid": "SendGrid"}.get(provider, "SMTP") if pwd else "Not set up",
+        "key_hint": key_hint(pwd),
+        "key_source": cfg.get("password_source", ""),
+        "key_source_label": source_label(cfg.get("password_source", "")),
+        "has_key": bool(pwd),
+        "key_problem": key_problem(provider, pwd),
+        "from_email": cfg.get("from_email", ""),
+        "from_name": cfg.get("from_name", ""),
+        "host": cfg.get("host", ""),
+    }
+
+
+def key_problem(provider: str, key: str) -> str:
+    """Catch the common wrong-key mistakes before calling the provider."""
+    if not key:
+        return "No API key is saved."
+    if provider == "brevo":
+        if key.startswith("xsmtpsib-"):
+            return ("This is a Brevo SMTP key (starts with xsmtpsib-), not an API key. In Brevo open "
+                    "SMTP & API > API Keys tab > Generate a new API key (starts with xkeysib-) and paste that.")
+        if not key.startswith("xkeysib-"):
+            return "Brevo API keys start with xkeysib-. The saved key does not, so it was probably pasted incompletely."
+    return ""
+
+
+def _brevo_error(status: int, text: str, cfg: Dict[str, Any]) -> str:
+    pwd = cfg.get("password") or ""
+    where = f"key {key_hint(pwd)} ({source_label(cfg.get('password_source', ''))})"
+    low = (text or "").lower()
+    if status == 401:
+        problem = key_problem("brevo", pwd)
+        if problem:
+            return f"Brevo rejected the {where}. {problem}"
+        if "ip" in low and ("unrecognised" in low or "unrecognized" in low or "authoris" in low or "authoriz" in low):
+            return (f"Brevo blocked the request from this server's IP address. In Brevo open Security > "
+                    f"Authorised IPs and turn the restriction off (Render's IP changes). Details: {text}")
+        return (f"Brevo does not recognise the {where}. It was deleted in Brevo or mistyped. "
+                f"Create a new API key in Brevo (SMTP & API > API Keys), paste it in Email Delivery and click Save & verify.")
+    if status == 400 and "sender" in low:
+        return (f"Brevo refused the sender '{cfg.get('from_email')}'. Add and verify this address in Brevo "
+                f"(Senders, Domains & Dedicated IPs > Senders), or change the sender email. Details: {text}")
+    return f"Brevo API error ({status}): {text}"
 
 
 def save_email_config(cfg: Dict[str, Any], c=None) -> None:
@@ -165,6 +249,7 @@ def save_email_config(cfg: Dict[str, Any], c=None) -> None:
             "user": cfg.get("user", ""),
             "password": cfg.get("password", ""),
             "from_email": cfg.get("from_email", "notifications@scriptflow.com"),
+            "from_name": cfg.get("from_name", ""),
             "tls": bool(cfg.get("tls", True)),
         })
         now = time.time()
@@ -188,6 +273,7 @@ def save_email_config(cfg: Dict[str, Any], c=None) -> None:
         db.set_setting(conn, "smtp_user", cfg.get("user", ""))
         db.set_setting(conn, "smtp_pass", cfg.get("password", ""))
         db.set_setting(conn, "smtp_from", cfg.get("from_email", "notifications@scriptflow.com"))
+        db.set_setting(conn, "smtp_from_name", cfg.get("from_name", ""))
         db.set_setting(conn, "smtp_tls", "1" if cfg.get("tls", True) else "0")
 
     if c is not None:
@@ -273,12 +359,14 @@ def test_connection(config: Optional[Dict[str, Any]] = None, c=None) -> Connecti
 
     # 2. Brevo HTTP API (HTTPS port 443)
     if provider == "brevo":
+        if not pwd or pwd.startswith("xsmtpsib-"):
+            return ConnectionResult(False, key_problem("brevo", pwd), {"provider": "Brevo"})
         try:
-            r = httpx.get("https://api.brevo.com/v3/account", headers={"api-key": pwd}, timeout=10.0)
+            r = httpx.get("https://api.brevo.com/v3/account", headers={"api-key": pwd, "accept": "application/json"}, timeout=10.0)
             if r.status_code == 200:
                 data = r.json()
-                return ConnectionResult(True, f"Brevo API connection verified for {data.get('email', 'account')} over HTTPS (port 443).", {"provider": "Brevo"})
-            return ConnectionResult(False, f"Brevo API authentication failed ({r.status_code}): {r.text}", {"provider": "Brevo", "error": r.text})
+                return ConnectionResult(True, f"Brevo key {key_hint(pwd)} works for account {data.get('email', '')}.", {"provider": "Brevo"})
+            return ConnectionResult(False, _brevo_error(r.status_code, r.text, cfg), {"provider": "Brevo", "error": r.text})
         except Exception as e:
             return ConnectionResult(False, f"Brevo API request failed: {e}", {"provider": "Brevo", "error": str(e)})
 
@@ -401,8 +489,12 @@ def send_email(
     # 2. Brevo HTTP API (HTTPS port 443)
     if provider == "brevo":
         try:
+            if not pwd or pwd.startswith("xsmtpsib-"):
+                err = key_problem("brevo", pwd)
+                _log_send_failure(actor, to_addr, subject, err, c=c)
+                return SendResult(ok=False, error=err, to=to_addr, subject=subject)
             payload = {
-                "sender": {"email": sender, "name": "ScriptFlow"},
+                "sender": {"email": sender, "name": cfg.get("from_name") or "ScriptFlow"},
                 "to": [{"email": to_addr}],
                 "subject": subject,
                 "textContent": body_text or "",
@@ -414,7 +506,7 @@ def send_email(
                 res_id = r.json().get("messageId", msg_id)
                 _log_send_success(actor, to_addr, subject, res_id, c=c)
                 return SendResult(ok=True, to=to_addr, message_id=res_id, subject=subject)
-            err = f"Brevo API error ({r.status_code}): {r.text}"
+            err = _brevo_error(r.status_code, r.text, cfg)
             _log_send_failure(actor, to_addr, subject, err, c=c)
             return SendResult(ok=False, error=err, to=to_addr, subject=subject)
         except Exception as e:

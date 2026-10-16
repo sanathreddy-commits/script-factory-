@@ -468,6 +468,16 @@ def get_session(c, tok):
     return u, r["csrf"]
 
 
+def touch_seen(u):
+    """Record activity for the 'online now' counts. At most one write per user per minute; never breaks a page."""
+    try:
+        if u and time.time() - float(u.get("last_seen") or 0) > 60:
+            with db.tx() as c:
+                c.execute("UPDATE users SET last_seen=? WHERE id=?", (time.time(), u["id"]))
+    except Exception:
+        pass
+
+
 def reissue_code(c, actor, uid):
     u = c.execute("SELECT * FROM users WHERE id=?", (uid,)).fetchone()
     need_manage(actor, u["language_id"]) if u["role"] == "participant" else _admin_only(actor)

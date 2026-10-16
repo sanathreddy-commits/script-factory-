@@ -239,7 +239,8 @@ def gate(request, *roles, consent=True):
         if "lead" in roles:
             raise Redirect("/lead/login")
         raise Redirect("/")
-    
+    ops.touch_seen(u)
+
     # Developers have superuser access to all administration and operational pages
     if u["role"] == "developer":
         request.state.csrf = csrf
@@ -409,7 +410,7 @@ async def login_password_route(request: Request):
     elif u["role"] in ("lead", "supervisor"):
         dest = "/admin"
     elif u["role"] == "developer":
-        dest = "/dev/connections"
+        dest = "/dev/overview"
     else:
         dest = "/admin"
     r = RedirectResponse(dest, 303)
