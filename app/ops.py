@@ -262,6 +262,81 @@ def _admin_only(actor):
         raise PermissionError("admin only")
 
 
+# ---------------------------------------------------------------- script deletion
+# Only RELEASED/ABANDONED assignment history may be removed with a script; anything else
+# (open work, submitted/accepted/rejected recordings) or any ledger/issue row keeps the script.
+_DEAD_ASSIGNMENT = ("RELEASED", "ABANDONED")
+
+
+def script_ids_in_scope(c, language_id, domain=None, subdomain=None, specialisation=None):
+    """Script ids under a folder of the scripts browser (language > domain > sub-domain > specialisation).
+    The browser shows an empty domain as 'Uncategorized', so that label matches both."""
+    where, args = ["language_id=?"], [int(language_id)]
+    if domain:
+        if domain == "Uncategorized":
+            where.append("COALESCE(domain,'') IN ('','Uncategorized')")
+        else:
+            where.append("domain=?")
+            args.append(domain)
+    if subdomain:
+        where.append("subdomain=?")
+        args.append(subdomain)
+    if specialisation:
+        where.append("specialisation=?")
+        args.append(specialisation)
+    return [r["id"] for r in c.execute("SELECT id FROM scripts WHERE " + " AND ".join(where), tuple(args)).fetchall()]
+
+
+def script_ids_for_codes(c, script_codes):
+    ids = []
+    codes_ = [s.strip() for s in script_codes if s and s.strip()]
+    for i in range(0, len(codes_), 500):
+        part = codes_[i:i + 500]
+        ids += [r["id"] for r in c.execute(
+            f"SELECT id FROM scripts WHERE code IN ({','.join('?' * len(part))})", tuple(part)).fetchall()]
+    return ids
+
+
+def delete_scripts(c, actor, script_ids, dry_run=False):
+    """Hard-delete scripts and their versions/jobs/reviews. Returns {deleted, codes, skipped:[{code, reason}]}.
+    Scripts with live or recorded work are skipped, never deleted, so hours and reports stay intact."""
+    _admin_only(actor)
+    deleted, skipped = [], []
+    ids = list(dict.fromkeys(int(x) for x in script_ids))
+    for i in range(0, len(ids), 500):
+        part = ids[i:i + 500]
+        qs = ",".join("?" * len(part))
+        scripts = c.execute(f"SELECT id, code FROM scripts WHERE id IN ({qs})", tuple(part)).fetchall()
+        busy = {}
+        for r in c.execute(f"SELECT script_id, status FROM assignments WHERE script_id IN ({qs})", tuple(part)).fetchall():
+            st = (r["status"] or "").upper()
+            if st not in _DEAD_ASSIGNMENT:
+                busy.setdefault(r["script_id"], f"has {st.lower()} assignment")
+        for r in c.execute(
+                f"SELECT a.script_id FROM assignments a WHERE a.script_id IN ({qs}) AND ("
+                "EXISTS(SELECT 1 FROM ledger l WHERE l.assignment_id=a.id) OR "
+                "EXISTS(SELECT 1 FROM issues x WHERE x.assignment_id=a.id))", tuple(part)).fetchall():
+            busy.setdefault(r["script_id"], "has recorded hours or issues")
+        ok = []
+        for s in scripts:
+            if s["id"] in busy:
+                skipped.append({"code": s["code"], "reason": busy[s["id"]]})
+            else:
+                ok.append(s)
+        if ok and not dry_run:
+            oq = ",".join("?" * len(ok))
+            oids = tuple(s["id"] for s in ok)
+            c.execute(f"DELETE FROM assignments WHERE script_id IN ({oq})", oids)
+            for t in ("script_versions", "jobs", "reviews"):
+                c.execute(f"DELETE FROM {t} WHERE script_id IN ({oq})", oids)
+            c.execute(f"DELETE FROM scripts WHERE id IN ({oq})", oids)
+        deleted += [s["code"] for s in ok]
+    if deleted and not dry_run:
+        shown = ",".join(deleted[:50]) + (f",...(+{len(deleted) - 50})" if len(deleted) > 50 else "")
+        db.audit(c, actor, "delete_scripts", f"count={len(deleted)} skipped={len(skipped)} codes={shown}")
+    return {"deleted": len(deleted), "codes": deleted, "skipped": skipped}
+
+
 def bulk_preview(c, language_id, text):
     rows, seen_p, seen_e = [], set(), set()
     rd = csv.DictReader(io.StringIO(text.strip()))

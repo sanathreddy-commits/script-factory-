@@ -1717,7 +1717,7 @@ async def admin_scripts_tree(request: Request):
             args.append(int(lang))
         where_sql = (" WHERE " + " AND ".join(where)) if where else ""
         rows = c.execute(
-            "SELECT s.code, l.name AS lang, s.domain, s.subdomain, s.specialisation, s.status, "
+            "SELECT s.code, s.language_id, l.name AS lang, s.domain, s.subdomain, s.specialisation, s.status, "
             "(SELECT a.status FROM assignments a WHERE a.script_id=s.id AND a.status NOT IN ('RELEASED','ABANDONED') ORDER BY a.id DESC LIMIT 1) AS astat "
             "FROM scripts s JOIN languages l ON l.id=s.language_id" + where_sql +
             " ORDER BY l.name, s.domain, s.subdomain, s.specialisation, s.code", tuple(args)
@@ -1735,7 +1735,7 @@ async def admin_scripts_tree(request: Request):
             else:
                 st = (r["status"] or "Planned").title()
             items.append({
-                "lang": r["lang"], "domain": r["domain"] or "Uncategorized",
+                "lang": r["lang"], "lang_id": r["language_id"], "domain": r["domain"] or "Uncategorized",
                 "sub": r["subdomain"] or "", "spec": r["specialisation"] or "",
                 "code": r["code"], "status": st,
             })
@@ -2201,6 +2201,32 @@ async def admin_agent_delete_post(request: Request, uid: int):
         db.audit(c, u, "delete_agent_reason", f"user={uid} reason={reason}")
         ops.delete_user(c, u, uid)
     return back("/admin/agents", m="Agent deleted successfully.")
+
+
+@router.post("/admin/scripts/delete")
+async def admin_scripts_delete_post(request: Request):
+    """Delete scripts by code list (single / multiple) or by folder scope (language, domain, sub-domain,
+    specialisation). dry_run=1 only counts. Admin/developer only; busy scripts are skipped, not deleted."""
+    u = gate(request, "admin", "developer")
+    f = await request.form()
+    if f.get("csrf") != getattr(request.state, "csrf", None):
+        return JSONResponse({"error": "Session expired. Reload the page and try again."}, status_code=400)
+    dry = str(f.get("dry_run") or "") == "1"
+    with db.tx() as c:
+        raw_codes = str(f.get("codes") or "")
+        if raw_codes.strip():
+            ids = ops.script_ids_for_codes(c, re.split(r"[\s,]+", raw_codes))
+        else:
+            lid = str(f.get("lang_id") or "")
+            if not lid.isdigit():
+                return JSONResponse({"error": "Pick scripts or a folder to delete."}, status_code=400)
+            ids = ops.script_ids_in_scope(c, int(lid), (f.get("domain") or "").strip() or None,
+                                          (f.get("sub") or "").strip() or None, (f.get("spec") or "").strip() or None)
+        if not ids:
+            return JSONResponse({"error": "No matching scripts found."}, status_code=404)
+        res = ops.delete_scripts(c, u, ids, dry_run=dry)
+    res["dry_run"] = dry
+    return JSONResponse(res)
 
 
 @router.get("/admin/scripts/sync")
