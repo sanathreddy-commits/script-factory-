@@ -294,7 +294,7 @@ def get_pool(dsn: str):
     global _pool
     with _pool_lock:
         if _pool is None:
-            _pool = psycopg2.pool.ThreadedConnectionPool(1, 20, dsn=dsn)
+            _pool = psycopg2.pool.ThreadedConnectionPool(5, 20, dsn=dsn)
         return _pool
 
 
