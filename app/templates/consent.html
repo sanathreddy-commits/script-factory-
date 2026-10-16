@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block mainclass %}narrow{% endblock %}
+{% block body %}
+<div class="card"><h1>Before you start</h1>
+  <p>{{ text }}</p>
+  <form method="post" action="/consent"><input type="hidden" name="csrf" value="{{ csrf }}">
+    <label class="row" style="color:var(--ink)"><input type="checkbox" name="agree" value="1"> <span>I have read and agree (required)</span></label>
+    <label class="row" style="color:var(--ink)"><input type="checkbox" name="optin" value="1"> <span>{{ optin }}</span></label>
+    <button class="btn pri big" style="margin-top:1rem">Continue</button>
+  </form>
+  <p class="small mute">Consent text is a draft until your compliance owner approves it.</p>
+</div>
+{% endblock %}

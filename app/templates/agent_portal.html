@@ -1,0 +1,1383 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>ScriptFlow</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Noto+Sans+Kannada:wght@400;600&family=Noto+Sans+Tamil:wght@400;600&family=Noto+Sans+Gujarati:wght@400;600&family=Noto+Sans+Gurmukhi:wght@400;600&family=Noto+Sans+Devanagari:wght@400;600&family=Noto+Sans+Oriya:wght@400;600&display=swap" rel="stylesheet">
+
+  <style>
+    /* Responsive, Clean Agent View */
+    body {
+      background-color: #F8FAFC;
+      font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+      color: #0F172A;
+      margin: 0;
+      padding: 0;
+    }
+
+    .portal-container {
+      width: 100%;
+      max-width: 1060px;
+      margin: 0 auto;
+      min-height: 100vh;
+      background: #FFFFFF;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+      padding-bottom: 78px; /* space for sticky bottom nav */
+      box-sizing: border-box;
+    }
+
+    @media (min-width: 1061px) {
+      .portal-container {
+        border-left: 1px solid #E2E8F0;
+        border-right: 1px solid #E2E8F0;
+      }
+    }
+
+    /* Clean Header: Brand on left, User + Logout on right (No unnecessary fluff) */
+    .clean-header {
+      background: #0F172A;
+      color: #FFFFFF;
+      padding: 12px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid #1E293B;
+      position: sticky;
+      top: 0;
+      z-index: 40;
+    }
+
+    .brand-title {
+      font-size: 19px;
+      font-weight: 800;
+      color: #FFFFFF;
+      letter-spacing: -0.3px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .brand-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #00A896;
+      display: inline-block;
+    }
+
+    .header-user-side {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .header-username {
+      font-size: 13px;
+      font-weight: 600;
+      color: #E2E8F0;
+    }
+
+    .btn-logout {
+      background: #DC2626;
+      color: #FFFFFF;
+      border: none;
+      font-size: 12px;
+      font-weight: 700;
+      padding: 6px 12px;
+      border-radius: 6px;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      cursor: pointer;
+      transition: background 0.15s ease;
+    }
+
+    .btn-logout:hover {
+      background: #B91C1C;
+    }
+
+    /* Main Body Area: Maximum Space & Clean Layout */
+    .portal-body {
+      padding: 16px 20px;
+      flex: 1;
+      width: 100%;
+      box-sizing: border-box;
+    }
+
+    @media (max-width: 640px) {
+      .portal-body {
+        padding: 12px 14px;
+      }
+    }
+
+    /* Compact KPI Metrics Grid */
+    .metrics-row {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+
+    .metric-pill-box {
+      border-radius: 10px;
+      padding: 12px 14px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      border: 1px solid transparent;
+    }
+
+    .metric-total {
+      background: #EEF2FF;
+      border-color: #C7D2FE;
+      color: #4338CA;
+    }
+
+    .metric-pending {
+      background: #FFFBEB;
+      border-color: #FDE68A;
+      color: #B45309;
+    }
+
+    .metric-completed {
+      background: #ECFDF5;
+      border-color: #A7F3D0;
+      color: #047857;
+    }
+
+    .metric-number {
+      font-size: 24px;
+      font-weight: 800;
+      line-height: 1;
+      margin-bottom: 3px;
+    }
+
+    .metric-caption {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+    }
+
+    /* Standard Cards */
+    .content-card {
+      background: #FFFFFF;
+      border: 1px solid #E2E8F0;
+      border-radius: 12px;
+      padding: 14px 16px;
+      margin-bottom: 16px;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+    }
+
+    .content-card-title {
+      font-size: 14px;
+      font-weight: 700;
+      color: #0F172A;
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    /* Pair & Supervisor Details */
+    .pair-columns {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+
+    @media (max-width: 580px) {
+      .pair-columns {
+        grid-template-columns: 1fr;
+        gap: 8px;
+      }
+    }
+
+    .pair-info-unit {
+      background: #F8FAFC;
+      border: 1px solid #E2E8F0;
+      border-radius: 8px;
+      padding: 10px 12px;
+    }
+
+    .unit-role-lbl {
+      font-size: 11px;
+      font-weight: 700;
+      color: #64748B;
+      text-transform: uppercase;
+      margin-bottom: 2px;
+    }
+
+    .unit-person-name {
+      font-size: 14px;
+      font-weight: 700;
+      color: #16292A;
+      margin-bottom: 4px;
+    }
+
+    .phone-call-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 12px;
+      font-weight: 600;
+      color: #0284C7;
+      text-decoration: none;
+      background: #E0F2FE;
+      padding: 2px 8px;
+      border-radius: 4px;
+    }
+
+    .phone-call-btn:hover {
+      background: #BAE6FD;
+    }
+
+    /* Training Video Card & Popup Trigger */
+    .training-video-compact {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .btn-watch-modal {
+      background: #00A896;
+      color: #FFFFFF;
+      border: none;
+      font-size: 13px;
+      font-weight: 700;
+      padding: 8px 16px;
+      border-radius: 8px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      cursor: pointer;
+      transition: background 0.15s ease;
+    }
+
+    .btn-watch-modal:hover {
+      background: #008779;
+    }
+
+    /* Video Modal Popup (No redirect needed) */
+    .video-modal-backdrop {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(15, 23, 42, 0.75);
+      backdrop-filter: blur(4px);
+      z-index: 100;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    }
+
+    .video-modal-backdrop.open {
+      display: flex;
+    }
+
+    .video-modal-box {
+      background: #0F172A;
+      border-radius: 12px;
+      width: 100%;
+      max-width: 760px;
+      overflow: hidden;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+      border: 1px solid #334155;
+    }
+
+    .video-modal-top {
+      padding: 10px 14px;
+      background: #1E293B;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      color: #FFFFFF;
+      font-weight: 700;
+      font-size: 13px;
+    }
+
+    .btn-close-modal {
+      background: #334155;
+      color: #FFFFFF;
+      border: none;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 700;
+      padding: 4px 10px;
+      cursor: pointer;
+    }
+
+    .btn-close-modal:hover {
+      background: #475569;
+    }
+
+    .video-responsive-wrap {
+      position: relative;
+      padding-bottom: 56.25%; /* 16:9 ratio */
+      height: 0;
+      overflow: hidden;
+      background: #000000;
+    }
+
+    .video-responsive-wrap iframe {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      border: 0;
+    }
+
+    /* Client Access Table: Exactly Sl.No - URL - Code */
+    .table-container {
+      width: 100%;
+      overflow-x: auto;
+      border-radius: 8px;
+      border: 1px solid #E2E8F0;
+    }
+
+    .simple-access-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+      text-align: left;
+    }
+
+    .simple-access-table th {
+      background: #F8FAFC;
+      color: #475569;
+      font-weight: 700;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      padding: 10px 12px;
+      border-bottom: 1px solid #E2E8F0;
+    }
+
+    .simple-access-table td {
+      padding: 10px 12px;
+      vertical-align: middle;
+      border-bottom: 1px solid #F1F5F9;
+    }
+
+    .simple-access-table tr:last-child td {
+      border-bottom: none;
+    }
+
+    .simple-access-table tr:hover td {
+      background: #F8FAFC;
+    }
+
+    .col-sl {
+      width: 60px;
+      font-weight: 700;
+      color: #64748B;
+      text-align: center;
+    }
+
+    .table-url-wrap {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .table-link-url {
+      color: #0284C7;
+      text-decoration: none;
+      font-weight: 600;
+      font-size: 13px;
+      word-break: break-all;
+    }
+
+    .table-link-url:hover {
+      text-decoration: underline;
+    }
+
+    .table-code-wrap {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .code-chip {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 12px;
+      font-weight: 700;
+      background: #F1F5F9;
+      color: #0F172A;
+      padding: 3px 8px;
+      border-radius: 6px;
+      border: 1px solid #CBD5E1;
+      letter-spacing: 0.5px;
+    }
+
+    .btn-icon-copy {
+      background: #F1F5F9;
+      border: 1px solid #CBD5E1;
+      color: #475569;
+      border-radius: 6px;
+      width: 28px;
+      height: 28px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      flex-shrink: 0;
+      transition: all 0.15s ease;
+    }
+
+    .btn-icon-copy:hover {
+      background: #E2E8F0;
+      color: #0F172A;
+    }
+
+    .btn-icon-copy.copied {
+      background: #DCFCE7 !important;
+      border-color: #86EFAC !important;
+      color: #166534 !important;
+    }
+
+    /* Scripts Switcher Tabs (Pending vs Completed) */
+    .scripts-top-switcher {
+      display: flex;
+      background: #F1F5F9;
+      padding: 4px;
+      border-radius: 10px;
+      gap: 4px;
+      margin-bottom: 14px;
+    }
+
+    .switch-tab-btn {
+      flex: 1;
+      border: none;
+      background: transparent;
+      padding: 10px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 700;
+      color: #64748B;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: all 0.15s ease;
+    }
+
+    .switch-tab-btn.active {
+      background: #FFFFFF;
+      color: #0F172A;
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+    }
+
+    .switch-tab-btn.active.tab-pending {
+      color: #B45309;
+    }
+
+    .switch-tab-btn.active.tab-completed {
+      color: #047857;
+    }
+
+    .counter-pill {
+      font-size: 11px;
+      font-weight: 800;
+      padding: 1px 7px;
+      border-radius: 10px;
+      background: #E2E8F0;
+      color: #475569;
+    }
+
+    .switch-tab-btn.active.tab-pending .counter-pill {
+      background: #FEF3C7;
+      color: #B45309;
+    }
+
+    .switch-tab-btn.active.tab-completed .counter-pill {
+      background: #D1FAE5;
+      color: #047857;
+    }
+
+    /* Script Items */
+    .script-row-card {
+      background: #FFFFFF;
+      border: 1px solid #E2E8F0;
+      border-radius: 10px;
+      padding: 12px 14px;
+      margin-bottom: 8px;
+      text-decoration: none;
+      color: inherit;
+      display: block;
+      transition: border-color 0.15s ease;
+    }
+
+    .script-row-card:hover {
+      border-color: #00A896;
+    }
+
+    .script-row-pending {
+      border-left: 4px solid #F59E0B;
+    }
+
+    .script-row-completed {
+      border-left: 4px solid #10B981;
+    }
+
+    /* AG3 Script View: MAXIMUM SPACE FOR SCRIPT TEXT */
+    .ag3-full-container {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      width: 100%;
+    }
+
+    .script-reader-box {
+      background: #FFFFFF;
+      border: 1px solid #E2E8F0;
+      border-radius: 12px;
+      padding: 18px 20px;
+      min-height: 380px;
+      font-size: 18px;
+      line-height: 1.8;
+      color: #0F172A;
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-family: 'Noto Sans Kannada', 'Noto Sans Devanagari', 'Noto Sans Tamil', 'Noto Sans Gujarati', 'Noto Sans Gurmukhi', 'Noto Sans Oriya', 'Plus Jakarta Sans', system-ui, sans-serif;
+    }
+
+    @media (max-width: 640px) {
+      .script-reader-box {
+        padding: 14px;
+        font-size: 16px;
+        line-height: 1.7;
+      }
+    }
+
+    /* Compact Side-by-Side Action Bar: Time | Take Photo | Submit Button */
+    .script-action-bar {
+      background: #F8FAFC;
+      border: 1px solid #CBD5E1;
+      border-radius: 12px;
+      padding: 12px 14px;
+      display: grid;
+      grid-template-columns: 1.4fr 1.3fr 1fr;
+      gap: 10px;
+      align-items: flex-end;
+    }
+
+    @media (max-width: 700px) {
+      .script-action-bar {
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+      }
+      .action-submit-slot {
+        grid-column: span 2;
+      }
+    }
+
+    .action-slot {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .action-label-text {
+      font-size: 11px;
+      font-weight: 700;
+      color: #475569;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .compact-time-input {
+      height: 40px;
+      font-size: 15px;
+      font-weight: 700;
+      text-align: center;
+      border: 1px solid #CBD5E1;
+      border-radius: 8px;
+      padding: 0 10px;
+      width: 100%;
+      box-sizing: border-box;
+      background: #FFFFFF;
+    }
+
+    /* Take Photo Button (direct camera launch on mobile) */
+    .btn-take-photo-action {
+      height: 40px;
+      background: #EFF6FF;
+      border: 1.5px dashed #3B82F6;
+      color: #1D4ED8;
+      font-size: 13px;
+      font-weight: 700;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      cursor: pointer;
+      width: 100%;
+      box-sizing: border-box;
+      transition: all 0.15s ease;
+      white-space: nowrap;
+    }
+
+    .btn-take-photo-action:hover {
+      background: #DBEAFE;
+    }
+
+    .btn-take-photo-action.captured {
+      background: #ECFDF5;
+      border: 1.5px solid #10B981;
+      color: #065F46;
+    }
+
+    .btn-submit-action {
+      height: 40px;
+      background: #00A896;
+      color: #FFFFFF;
+      font-size: 14px;
+      font-weight: 700;
+      border-radius: 8px;
+      border: none;
+      cursor: pointer;
+      width: 100%;
+      box-sizing: border-box;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.15s ease;
+    }
+
+    .btn-submit-action:hover {
+      background: #008779;
+    }
+
+    /* Bottom Nav */
+    .fixed-bottom-bar {
+      position: fixed;
+      bottom: 0;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 100%;
+      max-width: 1060px;
+      height: 58px;
+      background: #FFFFFF;
+      border-top: 1px solid #E2E8F0;
+      display: flex;
+      z-index: 50;
+      box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.04);
+    }
+
+    @media (min-width: 1061px) {
+      .fixed-bottom-bar {
+        border-left: 1px solid #E2E8F0;
+        border-right: 1px solid #E2E8F0;
+      }
+    }
+
+    .bottom-nav-item {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 13px;
+      font-weight: 700;
+      color: #64748B;
+      text-decoration: none;
+      gap: 6px;
+      transition: color 0.15s ease;
+      position: relative;
+    }
+
+    .bottom-nav-item.active {
+      color: #00A896;
+    }
+
+    .bottom-nav-item.active::after {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 25%;
+      right: 25%;
+      height: 3px;
+      background: #00A896;
+      border-radius: 0 0 3px 3px;
+    }
+
+    /* Toast Notification */
+    .simple-toast {
+      position: fixed;
+      bottom: 70px;
+      left: 50%;
+      transform: translateX(-50%) translateY(20px);
+      background: #0F172A;
+      color: #FFFFFF;
+      padding: 6px 14px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      opacity: 0;
+      pointer-events: none;
+      transition: all 0.2s ease;
+      z-index: 100;
+    }
+
+    .simple-toast.show {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+  </style>
+</head>
+<body>
+
+<div class="portal-container">
+  
+  <!-- ================= CLEAN TOP HEADER ================= -->
+  <header class="clean-header">
+    <div class="brand-title">
+      <span class="brand-dot"></span>
+      <span>ScriptFlow</span>
+    </div>
+    
+    <div class="header-user-side">
+      <span class="header-username">{{ agent.name }}</span>
+      <form method="post" action="/logout" style="margin:0;">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <button type="submit" class="btn-logout" title="Logout">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+            <polyline points="16 17 21 12 16 7"></polyline>
+            <line x1="21" y1="12" x2="9" y2="12"></line>
+          </svg>
+          Logout
+        </button>
+      </form>
+    </div>
+  </header>
+
+  <!-- ================= MAIN BODY ================= -->
+  <main class="portal-body">
+    {% if error %}
+      <div class="card" style="border-color:#FCA5A5;background:#FEF2F2;color:#B91C1C;padding:10px 14px;margin-bottom:12px;font-size:13px;font-weight:600;border-radius:8px;">
+        ⚠️ {{ error }}
+      </div>
+    {% endif %}
+    {% if msg %}
+      <div class="card" style="border-color:#6EE7B7;background:#ECFDF5;color:#047857;padding:10px 14px;margin-bottom:12px;font-size:13px;font-weight:600;border-radius:8px;">
+        ✅ {{ msg }}
+      </div>
+    {% endif %}
+
+    {% if screen == 'AG4' %}
+      <!-- ==========================================
+           AG4 COMPLETED SCREEN
+           ========================================== -->
+      <div style="margin-bottom:14px;">
+        <h1 class="page-title" style="margin-bottom:4px;">Script Submitted</h1>
+        <p class="muted-text">Your script submission was recorded successfully.</p>
+      </div>
+
+      <div class="content-card" style="border-top:4px solid #10B981;">
+        <div style="margin-bottom:10px;">
+          <div style="color:#64748B;font-size:11px;font-weight:700;text-transform:uppercase;">Script Code</div>
+          <div style="font-size:17px;font-weight:800;color:#0F172A;">{{ completed_item.script_code }}</div>
+        </div>
+        <div style="margin-bottom:10px;">
+          <div style="color:#64748B;font-size:11px;font-weight:700;text-transform:uppercase;">Taxonomy</div>
+          <div style="font-size:13px;color:#334155;">{{ completed_item.taxonomy }}</div>
+        </div>
+        <div style="margin-bottom:10px;">
+          <div style="color:#64748B;font-size:11px;font-weight:700;text-transform:uppercase;">Time Taken</div>
+          <div style="font-size:15px;font-weight:700;color:#059669;">{{ completed_item.time_taken }}</div>
+        </div>
+        <div>
+          <div style="color:#64748B;font-size:11px;font-weight:700;text-transform:uppercase;">Pair Details</div>
+          <div style="font-size:13px;color:#16292A;">Partner: <strong style="color:#16292A;">{{ completed_item.partner_name }}</strong></div>
+        </div>
+      </div>
+
+      <a href="/agent?tab=scripts" class="btn btn-primary btn-block" style="text-align:center;text-decoration:none;display:block;padding:10px;border-radius:8px;font-weight:700;">Back to Scripts</a>
+
+
+    {% elif screen == 'AG3' %}
+      <!-- ==========================================
+           AG3 SCRIPT SCREEN: MAX SCREEN SPACE FOR SCRIPT & SIDE-BY-SIDE COMPACT ACTION BAR
+           ========================================== -->
+      <div class="ag3-full-container" style="padding-bottom:50px;margin-bottom:20px;">
+        <div>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+            <a href="/agent?tab=scripts" style="display:inline-flex;align-items:center;gap:4px;color:#0284C7;text-decoration:none;font-weight:700;font-size:13px;">
+              ← Back to Scripts
+            </a>
+            <span style="font-size:14px;font-weight:800;color:#00A896;background:#E6F7F5;padding:3px 10px;border-radius:6px;border:1px solid #A7F3D0;">
+              {{ script.code }}
+            </span>
+          </div>
+          {% if script.domain or script.subdomain %}
+            <div style="font-size:12px;color:#64748B;font-weight:600;margin-top:2px;margin-bottom:8px;">
+              <span>{{ script.domain }}</span>
+              {% if script.subdomain %} &gt; <span>{{ script.subdomain }}</span>{% endif %}
+              {% if script.specialisation %} &gt; <span>{{ script.specialisation }}</span>{% endif %}
+            </div>
+          {% endif %}
+        </div>
+
+        <!-- Script Reading Text: Complete Raw Script Visibility! -->
+        <div class="script-reader-box">{{ script.content_text }}</div>
+
+        {% if script.is_submitted %}
+          <!-- Read-only submitted record (Record locked from editing) -->
+          <div class="content-card" style="border:1px solid #CBD5E1;background:#F8FAFC;border-radius:12px;padding:16px;margin:0 0 20px 0;">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
+              <div style="display:flex;align-items:center;gap:6px;">
+                <span style="font-size:15px;">🔒</span>
+                <span style="font-weight:800;font-size:13px;color:#0F172A;">Submitted Script Record</span>
+                <span style="font-size:11px;font-weight:600;color:#64748B;background:#E2E8F0;padding:2px 8px;border-radius:10px;">Read-Only</span>
+              </div>
+              <div>
+                {% if script.review_status == 'APPROVED' or script.review_status == 'ACCEPTED' %}
+                  <span class="status-badge status-accepted" style="font-size:11px;">Accepted</span>
+                {% elif script.review_status == 'REJECTED' %}
+                  <span class="status-badge status-rejected" style="font-size:11px;">Rejected</span>
+                {% else %}
+                  <span class="status-badge status-submitted" style="font-size:11px;">Submitted</span>
+                {% endif %}
+              </div>
+            </div>
+
+            <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));gap:10px;">
+              <div style="background:#FFFFFF;border:1px solid #E2E8F0;border-radius:8px;padding:10px 14px;">
+                <div style="font-size:11px;font-weight:700;color:#64748B;text-transform:uppercase;">Time Taken</div>
+                <div style="font-size:16px;font-weight:800;color:#059669;margin-top:2px;">{{ script.time_taken or '--:--' }}</div>
+              </div>
+
+              <div style="background:#FFFFFF;border:1px solid #E2E8F0;border-radius:8px;padding:10px 14px;">
+                <div style="font-size:11px;font-weight:700;color:#64748B;text-transform:uppercase;">Submission Photo</div>
+                <div style="margin-top:4px;">
+                  {% if script.proof_url %}
+                    <button type="button" class="btn-take-photo-action" style="height:32px;font-size:12px;padding:0 12px;width:auto;display:inline-flex;cursor:pointer;" onclick="openProofModal('{{ script.proof_url }}')">
+                      📷 View Proof Photo
+                    </button>
+                  {% else %}
+                    <span style="font-size:12px;color:#94A3B8;">No photo attached</span>
+                  {% endif %}
+                </div>
+              </div>
+            </div>
+            <div style="font-size:11px;color:#64748B;margin-top:10px;">
+              ℹ️ This script submission was recorded successfully. Filled time and picture cannot be modified.
+            </div>
+          </div>
+        {% else %}
+          <!-- Compact Side-by-Side Action Bar: Time | 📸 Capture Image | Submit Button -->
+          <form method="post" action="/agent/submit/{{ script.assignment_id }}" enctype="multipart/form-data" id="submitScriptForm" style="margin:0 0 20px 0;">
+            <input type="hidden" name="csrf" value="{{ csrf }}">
+            
+            <div class="script-action-bar">
+              <!-- 1. Ask for Time -->
+              <div class="action-slot">
+                <label class="action-label-text" for="minInput">Time taken (minutes : seconds) *</label>
+                <div style="display:flex;align-items:center;gap:6px;">
+                  <input type="number" id="minInput" min="0" max="20" class="compact-time-input" placeholder="10" style="width:70px;" required>
+                  <span style="font-weight:800;color:#64748B;">:</span>
+                  <input type="number" id="secInput" min="0" max="59" value="0" class="compact-time-input" placeholder="0" style="width:70px;">
+                </div>
+                <input type="hidden" id="timeTakenInput" name="time_taken">
+              </div>
+
+              <!-- 2. Option to Capture Image (direct camera launch on mobile, not upload) -->
+              <div class="action-slot">
+                <label class="action-label-text">Proof Photo *</label>
+                <button type="button" class="btn-take-photo-action" id="btnTakePhoto" onclick="document.getElementById('photoInput').click()">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+                    <circle cx="12" cy="13" r="4"></circle>
+                  </svg>
+                  <span id="photoBtnLabel">📸 Capture Image</span>
+                </button>
+                <!-- capture="environment" launches camera directly on phone -->
+                <input type="file" id="photoInput" name="photo" accept="image/*" capture="environment" style="display:none;" required onchange="handlePhotoCapture(this)">
+              </div>
+
+              <!-- 3. Submit Button -->
+              <div class="action-slot action-submit-slot">
+                <label class="action-label-text">&nbsp;</label>
+                <button type="submit" id="submitScriptBtn" class="btn-submit-action">
+                  Submit
+                </button>
+              </div>
+            </div>
+            <span id="timeErrorMsg" style="display:none;color:#DC2626;font-size:12px;font-weight:700;margin-top:4px;">
+              Time must be 5 to 15 minutes
+            </span>
+          </form>
+        {% endif %}
+      </div>
+
+      <script>
+        function handlePhotoCapture(input) {
+          const btn = document.getElementById('btnTakePhoto');
+          const label = document.getElementById('photoBtnLabel');
+          if (input.files && input.files.length > 0) {
+            btn.classList.add('captured');
+            label.textContent = '✓ Image Captured';
+          }
+        }
+
+        document.getElementById('submitScriptForm').addEventListener('submit', function(e) {
+          const errEl = document.getElementById('timeErrorMsg');
+          const photoInput = document.getElementById('photoInput');
+
+          if (!photoInput || !photoInput.files || photoInput.files.length === 0) {
+            e.preventDefault();
+            errEl.style.display = 'block';
+            errEl.textContent = 'A proof photo is strictly required before submitting.';
+            return;
+          }
+
+          const m = parseInt(document.getElementById('minInput').value, 10);
+          let s = parseInt(document.getElementById('secInput').value, 10);
+          if (isNaN(s)) s = 0;          // seconds optional -> default 0
+          if (isNaN(m)) {
+            e.preventDefault();
+            errEl.style.display = 'block';
+            errEl.textContent = 'Enter the minutes (5 to 15).';
+            return;
+          }
+          const totalSec = m * 60 + s;
+          if (totalSec < 300 || totalSec > 900) {
+            e.preventDefault();
+            errEl.style.display = 'block';
+            errEl.textContent = 'Time must be 5 to 15 minutes';
+            return;
+          }
+          // Compose the value the server expects (MM:SS).
+          document.getElementById('timeTakenInput').value = m + ':' + String(s).padStart(2, '0');
+          errEl.style.display = 'none';
+        });
+      </script>
+
+
+    {% elif tab == 'scripts' %}
+      <!-- Segmented Switcher at Top: Pending vs Completed -->
+      <div class="scripts-top-switcher">
+        <button type="button" class="switch-tab-btn active tab-pending" id="switchBtnPending" onclick="switchScriptsTab('pending')">
+          <span>⏳ Pending Scripts</span>
+          <span class="counter-pill">{{ pending_scripts|length }}</span>
+        </button>
+        <button type="button" class="switch-tab-btn tab-completed" id="switchBtnCompleted" onclick="switchScriptsTab('completed')">
+          <span>✅ Completed Scripts</span>
+          <span class="counter-pill">{{ completed_scripts|length }}</span>
+        </button>
+      </div>
+
+      <!-- Pending Section Panel -->
+      <div id="panelPendingScripts">
+        <div style="font-size:13px;font-weight:700;color:#64748B;margin-bottom:8px;">
+          Pending Scripts ({{ pending_scripts|length }}){% if sel_pair and partner %} · with {{ partner.name }}{% endif %}
+        </div>
+        {% if pending_scripts %}
+          {% for s in pending_scripts %}
+            <a href="/agent/script/{{ s.assignment_id }}" class="script-row-card script-row-pending">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+                <span style="font-weight:800;font-size:14px;color:#0F172A;">{{ s.code }}</span>
+                <span class="status-badge status-pending" style="font-size:11px;">Pending</span>
+              </div>
+              <div class="muted-text" style="font-size:12px;">
+                {{ s.domain }} &gt; {{ s.subdomain }} &gt; {{ s.specialisation }}
+              </div>
+              {% if s.partner_name %}<div style="font-size:11.5px;color:#0F766E;font-weight:600;margin-top:2px;">with {{ s.partner_name }}</div>{% endif %}
+            </a>
+          {% endfor %}
+        {% else %}
+          <div class="content-card" style="text-align:center;padding:24px;color:#64748B;font-size:13px;">
+            No pending scripts.
+          </div>
+        {% endif %}
+      </div>
+
+      <!-- Completed Section Panel (Toggled via Switcher) -->
+      <div id="panelCompletedScripts" style="display:none;">
+        <div style="font-size:13px;font-weight:700;color:#64748B;margin-bottom:8px;">
+          Completed Scripts ({{ completed_scripts|length }}){% if sel_pair and partner %} · with {{ partner.name }}{% endif %}
+        </div>
+        {% if completed_scripts %}
+          {% for s in completed_scripts %}
+            <a href="/agent/script/{{ s.assignment_id }}" class="script-row-card script-row-completed" style="display:block;text-decoration:none;color:inherit;">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+                <span style="font-weight:800;font-size:14px;color:#0F172A;">{{ s.code }}</span>
+                {% if s.review_status == 'APPROVED' or s.review_status == 'ACCEPTED' %}
+                  <span class="status-badge status-accepted" style="font-size:11px;">Accepted</span>
+                {% elif s.review_status == 'REJECTED' %}
+                  <span class="status-badge status-rejected" style="font-size:11px;">Rejected</span>
+                {% else %}
+                  <span class="status-badge status-submitted" style="font-size:11px;">Submitted</span>
+                {% endif %}
+              </div>
+              <div class="muted-text" style="font-size:12px;">
+                {{ s.domain }} &gt; {{ s.subdomain }} &gt; {{ s.specialisation }}
+              </div>
+              {% if s.partner_name %}<div style="font-size:11.5px;color:#0F766E;font-weight:600;margin-top:2px;">with {{ s.partner_name }}</div>{% endif %}
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-top:6px;">
+                <span style="font-size:11px;color:#059669;font-weight:700;">Time: {{ s.time_taken }}</span>
+                <span style="font-size:11px;color:#0284C7;font-weight:700;">View Script →</span>
+              </div>
+            </a>
+          {% endfor %}
+        {% else %}
+          <div class="content-card" style="text-align:center;padding:24px;color:#64748B;font-size:13px;">
+            No completed scripts yet.
+          </div>
+        {% endif %}
+      </div>
+
+      <script>
+        function switchScriptsTab(tabName) {
+          const btnPending = document.getElementById('switchBtnPending');
+          const btnCompleted = document.getElementById('switchBtnCompleted');
+          const panelPending = document.getElementById('panelPendingScripts');
+          const panelCompleted = document.getElementById('panelCompletedScripts');
+
+          if (tabName === 'completed') {
+            btnPending.classList.remove('active');
+            btnCompleted.classList.add('active');
+            panelPending.style.display = 'none';
+            panelCompleted.style.display = 'block';
+            window.location.hash = 'completed';
+          } else {
+            btnCompleted.classList.remove('active');
+            btnPending.classList.add('active');
+            panelCompleted.style.display = 'none';
+            panelPending.style.display = 'block';
+            window.location.hash = 'pending';
+          }
+        }
+
+        if (window.location.hash === '#completed') {
+          switchScriptsTab('completed');
+        }
+      </script>
+
+
+    {% else %}
+      <!-- 3 Metrics Cards -->
+      <div class="metrics-row">
+        <div class="metric-pill-box metric-total">
+          <div class="metric-number">{{ kpi.total_assigned }}</div>
+          <div class="metric-caption">Total Assigned</div>
+        </div>
+        <div class="metric-pill-box metric-pending">
+          <div class="metric-number">{{ kpi.pending }}</div>
+          <div class="metric-caption">Pending</div>
+        </div>
+        <div class="metric-pill-box metric-completed">
+          <div class="metric-number">{{ kpi.completed }}</div>
+          <div class="metric-caption">Completed</div>
+        </div>
+      </div>
+
+      <!-- Pair details & Team lead -->
+      <div class="content-card">
+        <div class="content-card-title">
+          <span>Pair &amp; Team Lead Details</span>
+        </div>
+        <div class="pair-columns">
+          <div class="pair-info-unit">
+            <div class="unit-role-lbl">{% if partners|length > 1 %}Partners ({{ partners|length }}){% else %}Partner Details{% endif %}</div>
+            {% if partners %}
+              {% for pt in partners %}
+              <a href="/agent?tab=scripts&pair={{ pt.pair_id }}" style="display:block;text-decoration:none;border:1px solid {{ '#0F766E' if pt.selected else '#DCEDEC' }};background:{{ '#E6F4F1' if pt.selected else '#fff' }};border-radius:8px;padding:8px 10px;margin-bottom:8px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+                  <span class="unit-person-name" style="margin:0;">{{ pt.partner_name }}</span>
+                  <span style="font-size:11px;font-weight:700;color:#0F766E;white-space:nowrap;">{{ pt.total }} script{{ '' if pt.total == 1 else 's' }}</span>
+                </div>
+                <div style="font-size:11.5px;color:#5E7877;margin-top:2px;">{{ pt.pending }} pending · {{ pt.completed }} completed · 📞 {{ pt.partner_phone }}</div>
+              </a>
+              {% endfor %}
+              {% if sel_pair %}<a href="/agent?tab=scripts" style="font-size:12px;color:#0F766E;font-weight:600;">Show scripts from all partners</a>{% endif %}
+            {% else %}
+              <div class="muted-text" style="font-size:12px;">Not paired yet.</div>
+            {% endif %}
+          </div>
+
+          <div class="pair-info-unit">
+            <div class="unit-role-lbl">Team Lead / Supervisor</div>
+            {% if supervisor %}
+              <div class="unit-person-name">{{ supervisor.name }}</div>
+              <div>
+                {% if supervisor.phone %}
+                  <a href="tel:{{ supervisor.phone }}" class="phone-call-btn">
+                    <span>📞</span> {{ supervisor.phone }}
+                  </a>
+                {% else %}
+                  <span class="muted-text" style="font-size:12px;">Contact lead</span>
+                {% endif %}
+              </div>
+            {% else %}
+              <div class="muted-text" style="font-size:12px;">Assigned to Language Lead</div>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+
+      <!-- Training Video (Pop-up modal on click, no redirect needed) -->
+      <div class="content-card">
+        <div class="content-card-title">
+          <span>Training Video</span>
+        </div>
+        <div class="training-video-compact">
+          <div>
+            <div style="font-weight:700;font-size:13px;color:#0F172A;">Recording SOP &amp; Roleplay Guidelines</div>
+            <div class="muted-text" style="font-size:12px;">Watch guidelines before recording session</div>
+          </div>
+          <button type="button" class="btn-watch-modal" onclick="openVideoModal()">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+            Watch Training Video
+          </button>
+        </div>
+      </div>
+
+      <!-- Client Access Table: Sl.No - Taxonomy - URL - Code -->
+      <div class="content-card">
+        <div class="content-card-title">
+          <span>Client Access</span>
+        </div>
+
+        <div class="table-container">
+          <table class="simple-access-table">
+            <thead>
+              <tr>
+                <th class="col-sl">SL. NO.</th>
+                <th>Taxonomy</th>
+                <th>URL</th>
+                <th>CODE</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for p in portal_access_items %}
+                <tr>
+                  <td class="col-sl">{{ loop.index }}</td>
+                  <td style="font-weight:600;color:#0F172A;white-space:nowrap;">
+                    {{ p.taxonomy or p.name or 'General' }}
+                  </td>
+                  <td>
+                    <div class="table-url-wrap">
+                      <a href="{{ p.url }}" target="_blank" rel="noopener" class="table-link-url">
+                        {{ p.url }}
+                      </a>
+                      <button type="button" class="btn-icon-copy" onclick="copyValue('{{ p.url }}', this)" title="Copy URL">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                          <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                        </svg>
+                      </button>
+                    </div>
+                  </td>
+                  <td>
+                    <div class="table-code-wrap">
+                      <code class="code-chip">{{ p.code }}</code>
+                      <button type="button" class="btn-icon-copy" onclick="copyValue('{{ p.code }}', this)" title="Copy Code">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                          <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                        </svg>
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    {% endif %}
+  </main>
+
+  <!-- ================= BOTTOM NAVIGATION ================= -->
+  <nav class="fixed-bottom-bar">
+    <a href="/agent?tab=dashboard" class="bottom-nav-item {% if not tab or tab == 'dashboard' %}active{% endif %}">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="3" width="7" height="7"></rect>
+        <rect x="14" y="3" width="7" height="7"></rect>
+        <rect x="14" y="14" width="7" height="7"></rect>
+        <rect x="3" y="14" width="7" height="7"></rect>
+      </svg>
+      <span>Dashboard</span>
+    </a>
+    <a href="/agent?tab=scripts" class="bottom-nav-item {% if tab == 'scripts' or screen in ('AG2', 'AG3', 'AG4') %}active{% endif %}">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+        <polyline points="14 2 14 8 20 8"></polyline>
+        <line x1="16" y1="13" x2="8" y2="13"></line>
+        <line x1="16" y1="17" x2="8" y2="17"></line>
+      </svg>
+      <span>Scripts</span>
+    </a>
+  </nav>
+
+</div>
+
+<!-- ================= VIDEO MODAL POP-UP (NO REDIRECT) ================= -->
+<div id="videoModal" class="video-modal-backdrop" onclick="handleBackdropClick(event)">
+  <div class="video-modal-box">
+    <div class="video-modal-top">
+      <span>Recording SOP &amp; Roleplay Guidelines</span>
+      <button type="button" class="btn-close-modal" onclick="closeVideoModal()">✕ Close</button>
+    </div>
+    <div class="video-responsive-wrap">
+      <video id="videoPlayer" controls playsinline style="display:none;position:absolute;top:0;left:0;width:100%;height:100%;background:#000;"></video>
+      <iframe id="videoIframe" src="" title="Training Video" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+    </div>
+  </div>
+</div>
+
+<!-- ================= PROOF PHOTO POP-UP MODAL ================= -->
+<div id="proofModal" class="video-modal-backdrop" onclick="closeProofModal(event)">
+  <div class="video-modal-box" style="max-width:560px;background:#FFFFFF;border-radius:12px;overflow:hidden;box-shadow:0 10px 30px rgba(0,0,0,0.25);" onclick="event.stopPropagation()">
+    <div class="video-modal-top" style="background:#0F172A;color:#FFFFFF;padding:12px 18px;display:flex;align-items:center;justify-content:space-between;">
+      <span style="font-weight:700;font-size:14px;">Submission Proof Photo</span>
+      <button type="button" class="btn-close-modal" onclick="closeProofModal()">✕ Close</button>
+    </div>
+    <div style="padding:16px;text-align:center;background:#F8FAFC;max-height:75vh;overflow:auto;">
+      <img id="proofModalImage" src="" alt="Proof Photo" style="max-width:100%;height:auto;border-radius:8px;border:1px solid #CBD5E1;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
+    </div>
+  </div>
+</div>
+
+<!-- ================= SIMPLE COPY TOAST ================= -->
+<div id="simpleToast" class="simple-toast">
+  <span>✓</span> <span>Copied to clipboard!</span>
+</div>
+
+<script>
+  // Training Video Modal Logic (supports both uploaded video files and embed URLs)
+  const videoUrl = {{ (training_video_url or 'https://www.youtube.com/embed/dQw4w9WgXcQ')|tojson }};
+
+  function isDirectVideoFile(url) {
+    if (!url) return false;
+    const clean = url.split('?')[0].toLowerCase();
+    return clean.startsWith('/uploads/') || clean.endsWith('.mp4') || clean.endsWith('.webm') || clean.endsWith('.ogg') || clean.endsWith('.mov');
+  }
+
+  function openVideoModal() {
+    const modal = document.getElementById('videoModal');
+    const iframe = document.getElementById('videoIframe');
+    const player = document.getElementById('videoPlayer');
+    if (!modal) return;
+    if (isDirectVideoFile(videoUrl)) {
+      if (iframe) { iframe.src = ''; iframe.style.display = 'none'; }
+      if (player) {
+        player.style.display = 'block';
+        player.src = videoUrl;
+        player.play().catch(() => {});
+      }
+    } else {
+      if (player) { player.pause(); player.removeAttribute('src'); player.style.display = 'none'; }
+      if (iframe) {
+        iframe.style.display = 'block';
+        iframe.src = videoUrl + (videoUrl.includes('?') ? '&' : '?') + 'autoplay=1';
+      }
+    }
+    modal.classList.add('open');
+  }
+
+  function closeVideoModal() {
+    const modal = document.getElementById('videoModal');
+    const iframe = document.getElementById('videoIframe');
+    const player = document.getElementById('videoPlayer');
+    if (iframe) iframe.src = '';
+    if (player) { player.pause(); player.removeAttribute('src'); }
+    if (modal) modal.classList.remove('open');
+  }
+
+  function handleBackdropClick(e) {
+    if (e.target.id === 'videoModal') {
+      closeVideoModal();
+    }
+  }
+
+  function openProofModal(imgUrl) {
+    const modal = document.getElementById('proofModal');
+    const img = document.getElementById('proofModalImage');
+    if (modal && img) {
+      img.src = imgUrl;
+      modal.style.display = 'flex';
+    }
+  }
+
+  function closeProofModal(event) {
+    if (event && event.target !== event.currentTarget) return;
+    const modal = document.getElementById('proofModal');
+    if (modal) modal.style.display = 'none';
+  }
+
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+      closeVideoModal();
+      closeProofModal();
+    }
+  });
+
+  // Copy to Clipboard Logic
+  function copyValue(text, btnElement) {
+    function onDone() {
+      if (btnElement) {
+        btnElement.classList.add('copied');
+        setTimeout(() => {
+          btnElement.classList.remove('copied');
+        }, 1800);
+      }
+      const toast = document.getElementById('simpleToast');
+      if (toast) {
+        toast.classList.add('show');
+        setTimeout(() => {
+          toast.classList.remove('show');
+        }, 1800);
+      }
+    }
+
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(text).then(onDone).catch(() => fallbackCopy(text, onDone));
+    } else {
+      fallbackCopy(text, onDone);
+    }
+  }
+
+  function fallbackCopy(text, cb) {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.left = '-9999px';
+    ta.style.top = '-9999px';
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    try {
+      document.execCommand('copy');
+      if (cb) cb();
+    } catch (e) {
+      console.error(e);
+    }
+    document.body.removeChild(ta);
+  }
+</script>
+
+</body>
+</html>

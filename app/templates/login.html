@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>{% if tab == 'L1' %}Developer Login{% elif tab == 'L2' %}Admin Login{% else %}Portal Login{% endif %} · ScriptFlow</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body style="background-color:var(--bg);">
+
+<div class="login-wrap">
+  <div class="login-card">
+    <div style="margin-bottom:20px;">
+      <div style="font-size:20px;font-weight:700;color:var(--text);margin-bottom:4px;">ScriptFlow</div>
+      <div class="muted-text" id="screenIdText">
+        {% if tab == 'L1' %}
+          L1 Developer Login
+        {% elif tab == 'L2' %}
+          L2 Admin Login
+        {% elif tab == 'L3' %}
+          L3 Supervisor Login
+        {% else %}
+          L4 Agent Login
+        {% endif %}
+      </div>
+    </div>
+
+    {% if error or err %}
+      <div class="card" style="border-color:#D64545;color:#D64545;padding:8px 12px;margin-bottom:14px;font-size:13px;font-weight:600;">
+        {{ error or err }}
+      </div>
+    {% endif %}
+
+    {% if tab == 'L2' %}
+      <!-- Admin Direct Login (/admin/login) -->
+      <form method="post" action="/login/password">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <input type="hidden" name="tab" value="L2">
+        <div class="form-group">
+          <label class="form-label" for="adminEmail">Email</label>
+          <input type="email" id="adminEmail" name="email" class="form-input" required placeholder="admin@awign.com" autofocus>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="adminPwd">Password</label>
+          <input type="password" id="adminPwd" name="password" class="form-input" required placeholder="Enter password">
+        </div>
+        <button type="submit" class="btn btn-primary btn-block">Sign In</button>
+      </form>
+
+    {% elif tab == 'L1' %}
+      <!-- Developer Direct Login (/dev/login) -->
+      <form method="post" action="/login/password">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <input type="hidden" name="tab" value="L1">
+        <div class="form-group">
+          <label class="form-label" for="devEmail">Email</label>
+          <input type="email" id="devEmail" name="email" class="form-input" required placeholder="sanath.reddy@awign.com" autofocus>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="devPwd">Password</label>
+          <input type="password" id="devPwd" name="password" class="form-input" required placeholder="Enter password">
+        </div>
+        <button type="submit" class="btn btn-primary btn-block">Sign In</button>
+      </form>
+
+    {% else %}
+      <!-- Agent & Supervisor Code Login (/ or /login) -->
+      <form method="post" action="/login">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <input type="hidden" name="tab" value="L4">
+        <div class="form-group">
+          <label class="form-label" for="accessCodeInput">Access Code</label>
+          <input type="text" id="accessCodeInput" name="code" class="form-input" style="font-size:18px;letter-spacing:2px;text-align:center;text-transform:uppercase;" required placeholder="ENTER CODE" autofocus>
+        </div>
+        <button type="submit" class="btn btn-primary btn-block">Start Working</button>
+      </form>
+    {% endif %}
+  </div>
+</div>
+
+</body>
+</html>

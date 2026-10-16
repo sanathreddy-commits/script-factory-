@@ -1,0 +1,896 @@
+{% extends "base.html" %}
+{% block title %}
+  {% if dv_tab == 'keys' %}DV2 Keys
+  {% elif dv_tab == 'admins' %}DV3 Admins
+  {% elif dv_tab == 'rules' %}DV4 Rules
+  {% elif dv_tab == 'backups' %}DV5 Backups
+  {% elif dv_tab == 'logs' %}DV6 Logs
+  {% else %}DV1 Connections{% endif %} · ScriptFlow
+{% endblock %}
+
+{% block pagetitle %}
+  {% if dv_tab == 'keys' %}DV2 Keys
+  {% elif dv_tab == 'admins' %}DV3 Admins
+  {% elif dv_tab == 'rules' %}DV4 Rules
+  {% elif dv_tab == 'backups' %}DV5 Backups
+  {% elif dv_tab == 'logs' %}DV6 Logs
+  {% else %}DV1 Connections{% endif %}
+{% endblock %}
+
+{% block content %}
+<!-- Developer Subtabs: DV1 Connections | DV2 Keys | DV3 Admins | DV4 Rules | DV5 Backups | DV6 Logs -->
+<div style="display:flex;gap:4px;border-bottom:1px solid var(--border);margin-bottom:16px;">
+  <a href="/dev/connections" class="btn {% if not dv_tab or dv_tab == 'connections' %}btn-primary{% else %}btn-secondary{% endif %} btn-sm">DV1 Connections</a>
+  <a href="/dev/keys" class="btn {% if dv_tab == 'keys' %}btn-primary{% else %}btn-secondary{% endif %} btn-sm">DV2 Keys</a>
+  <a href="/dev/admins" class="btn {% if dv_tab == 'admins' %}btn-primary{% else %}btn-secondary{% endif %} btn-sm">DV3 Admins</a>
+  <a href="/dev/rules" class="btn {% if dv_tab == 'rules' %}btn-primary{% else %}btn-secondary{% endif %} btn-sm">DV4 Rules</a>
+  <a href="/dev/backups" class="btn {% if dv_tab == 'backups' %}btn-primary{% else %}btn-secondary{% endif %} btn-sm">DV5 Backups</a>
+  <a href="/dev/logs" class="btn {% if dv_tab == 'logs' %}btn-primary{% else %}btn-secondary{% endif %} btn-sm">DV6 Logs</a>
+</div>
+
+{% if not dv_tab or dv_tab == 'connections' %}
+  <!-- ========================================================
+       DV1 CONNECTIONS
+       Supabase, Google Drive, Google Sheets, Generation machine.
+       Each: status, last tested, Test button, Edit.
+       ======================================================== -->
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:8px;flex-wrap:wrap;">
+    <div>
+      <h2 style="margin:0;">DV1 External Connections</h2>
+      <span class="muted-text">Integration endpoints, cloud sync, and LLM inference engine</span>
+    </div>
+    <div style="display:flex;gap:8px;">
+      <form method="post" action="/dev/sheets/sync" style="margin:0;display:inline-block;">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <button type="submit" class="btn btn-primary btn-sm" style="display:inline-flex;align-items:center;gap:6px;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/></svg>
+          Sync to Google Sheets
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <div class="table-container">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Service Name</th>
+          <th>Endpoint / Provider</th>
+          <th>Status</th>
+          <th>Last Tested</th>
+          <th style="text-align:right;">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for c in connections %}
+        <tr>
+          <td style="font-weight:700;">{{ c.name }}</td>
+          <td>{{ c.service }}</td>
+          <td>
+            {% if c.status == 'Connected' %}
+              <span class="status-badge status-accepted">{{ c.status }}</span>
+            {% else %}
+              <span class="status-badge status-limit">{{ c.status }}</span>
+            {% endif %}
+          </td>
+          <td>{{ c.last_tested_str }}</td>
+          <td style="text-align:right;">
+            <form method="post" action="/dev/connections/test/{{ c.id }}" style="display:inline-block;margin:0;">
+              <input type="hidden" name="csrf" value="{{ csrf }}">
+              <button type="submit" class="btn btn-secondary btn-sm" style="height:26px;padding:0 8px;">Test</button>
+            </form>
+            {% if c.service == 'Google Drive' %}
+            <form method="post" action="/dev/connections/backup/{{ c.id }}" style="display:inline-block;margin:0;">
+              <input type="hidden" name="csrf" value="{{ csrf }}">
+              <button type="submit" class="btn btn-primary btn-sm" style="height:26px;padding:0 8px;">Backup to Drive</button>
+            </form>
+            {% endif %}
+            {% if c.service == 'Supabase' %}
+            <form method="post" action="/dev/connections/sync/{{ c.id }}" style="display:inline-block;margin:0;">
+              <input type="hidden" name="csrf" value="{{ csrf }}">
+              <button type="submit" class="btn btn-primary btn-sm" style="height:26px;padding:0 8px;">Sync</button>
+            </form>
+            <form method="post" action="/dev/connections/restore/{{ c.id }}" style="display:inline-block;margin:0;" onsubmit="return confirm('Restore latest database from Supabase Storage? Current local database will be replaced.');">
+              <input type="hidden" name="csrf" value="{{ csrf }}">
+              <button type="submit" class="btn btn-secondary btn-sm" style="height:26px;padding:0 8px;">Restore</button>
+            </form>
+            {% elif c.service == 'Google Sheets' or 'sheet' in (c.service|lower) or 'sheet' in (c.name|lower) %}
+            <form method="post" action="/dev/connections/sync/{{ c.id }}" style="display:inline-block;margin:0;">
+              <input type="hidden" name="csrf" value="{{ csrf }}">
+              <button type="submit" class="btn btn-primary btn-sm" style="height:26px;padding:0 8px;">Sync Now</button>
+            </form>
+            {% endif %}
+            <button type="button" class="btn btn-secondary btn-sm" style="height:26px;padding:0 8px;" onclick='editConnModal({{ c.id }}, {{ c.name|tojson }}, {{ c.service|tojson }}, {{ c.config_json|tojson }})'>Edit</button>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Easy Email Delivery Setup (for bulk access-code emails) -->
+  <div class="card" id="emailSetupCard" style="margin-top:20px;max-width:760px;">
+    <div class="card-header">
+      <div>
+        <div class="card-title">Email Delivery Setup</div>
+        <span class="muted-text" style="font-size:12px;">Used to send access codes in bulk. Pick a provider, paste the key, set the sender, then send a test.</span>
+      </div>
+    </div>
+    <div style="font-size:12px;color:#5E7877;background:#F8FAFC;border:1px solid #E2E8F0;border-radius:8px;padding:10px 12px;margin-bottom:14px;line-height:1.5;">
+      <strong>On Render, Gmail SMTP fails</strong> — Render Free blocks outbound SMTP ports (25/465/587), so Gmail (which only uses those ports) times out even with a valid app password. It works on your laptop because your laptop allows those ports. <strong>Fix: use Brevo</strong> (free, 300 emails/day) — it sends over HTTPS (port 443), which Render allows.<br>
+      <strong>Get a free Brevo key:</strong> sign up at brevo.com → <em>SMTP &amp; API</em> → <em>API Keys</em> → create one (starts with <code>xkeysib-</code>) → paste below. Verify your sender email in Brevo under <em>Senders</em>.
+    </div>
+    <form method="post" action="/dev/email/setup">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <div class="form-group">
+        <label class="form-label" for="emProvider">Provider</label>
+        <select id="emProvider" name="provider" class="form-select" onchange="emProviderChange(this.value)">
+          <option value="brevo">Brevo — free, works on Render (recommended)</option>
+          <option value="resend">Resend — HTTPS API, works on Render</option>
+          <option value="sendgrid">SendGrid — HTTPS API, works on Render</option>
+          <option value="gmail">Gmail SMTP — local only, blocked on Render</option>
+        </select>
+      </div>
+      <div class="form-group" id="emGmailUserWrap" style="display:none;">
+        <label class="form-label" for="emGmailUser">Gmail address</label>
+        <input type="email" id="emGmailUser" name="gmail_user" class="form-input" placeholder="you@gmail.com">
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="emKey"><span id="emKeyLabel">Brevo API key</span></label>
+        <input type="text" id="emKey" name="api_key" class="form-input" placeholder="xkeysib-..." autocomplete="off">
+      </div>
+      <div style="display:flex;gap:12px;flex-wrap:wrap;">
+        <div class="form-group" style="flex:1;min-width:220px;">
+          <label class="form-label" for="emFrom">Sender email (must be verified with the provider)</label>
+          <input type="email" id="emFrom" name="from_email" class="form-input" placeholder="notifications@yourdomain.com">
+        </div>
+        <div class="form-group" style="flex:1;min-width:180px;">
+          <label class="form-label" for="emFromName">Sender name (optional)</label>
+          <input type="text" id="emFromName" name="from_name" class="form-input" placeholder="ScriptFactory Team">
+        </div>
+      </div>
+      <div class="modal-actions" style="justify-content:flex-start;">
+        <button type="submit" class="btn btn-primary">Save Email Settings</button>
+      </div>
+    </form>
+    <div style="border-top:1px solid var(--border);margin-top:14px;padding-top:14px;">
+      <form method="post" action="/dev/email/verify" style="display:inline;margin:0 0 10px;"><input type="hidden" name="csrf" value="{{ csrf }}"><button type="submit" class="btn btn-secondary btn-sm">Test connection (verify key)</button></form>
+      <form method="post" action="/dev/email/test" style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <div class="form-group" style="margin:0;flex:1;min-width:240px;">
+          <label class="form-label" for="emTestTo">Send a test email to</label>
+          <input type="email" id="emTestTo" name="to" class="form-input" placeholder="your@email.com" required>
+        </div>
+        <button type="submit" class="btn btn-secondary">Send test email</button>
+      </form>
+    </div>
+  </div>
+  <script>
+  function emProviderChange(v){
+    document.getElementById('emGmailUserWrap').style.display = (v==='gmail')?'block':'none';
+    var lbl={brevo:'Brevo API key',resend:'Resend API key',sendgrid:'SendGrid API key',gmail:'Gmail app password'}[v]||'API key';
+    var ph={brevo:'xkeysib-...',resend:'re_...',sendgrid:'SG....',gmail:'16-char app password'}[v]||'';
+    document.getElementById('emKeyLabel').textContent=lbl;
+    document.getElementById('emKey').placeholder=ph;
+  }
+  </script>
+
+  <!-- Easy Google Drive Setup (primary image storage) -->
+  <div class="card" id="driveSetupCard" style="margin-top:20px;max-width:760px;">
+    <div class="card-header">
+      <div>
+        <div class="card-title">Google Drive Storage Setup</div>
+        <span class="muted-text" style="font-size:12px;">Proof photos are stored in Google Drive (15 GB free) and their links appear in the exported sheet. A safety copy also stays in Supabase.</span>
+      </div>
+    </div>
+    <div style="font-size:12px;color:#5E7877;background:#F8FAFC;border:1px solid #E2E8F0;border-radius:8px;padding:10px 12px;margin-bottom:14px;line-height:1.5;">
+      <strong>Setup (one time):</strong> In Google Cloud Console create a <em>Service Account</em> → create a JSON key → paste the whole JSON below. In Google Drive create a folder, share it with the service account's email (Editor), and paste the folder ID (the part of the folder URL after <code>/folders/</code>).
+    </div>
+    <form method="post" action="/dev/drive/setup">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <div class="form-group">
+        <label class="form-label" for="drvFolder">Drive folder ID</label>
+        <input type="text" id="drvFolder" name="folder_id" class="form-input" placeholder="1AbCdEf..." value="{{ (rules.google_drive_folder_id if rules is defined else '') or '' }}">
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="drvJson">Service account JSON</label>
+        <textarea id="drvJson" name="service_account_json" class="form-input" rows="5" style="font-family:monospace;height:auto;padding:10px;" placeholder='{ "type": "service_account", "project_id": "...", ... }'></textarea>
+        <span class="muted-text" style="font-size:11px;">Leave blank to keep the saved key. It is stored server-side only.</span>
+      </div>
+      <div class="modal-actions" style="justify-content:flex-start;">
+        <button type="submit" class="btn btn-primary">Save Drive Settings</button>
+      </div>
+    </form>
+    <div style="border-top:1px solid var(--border);margin-top:14px;padding-top:14px;">
+      <form method="post" action="/dev/drive/test" style="display:inline;margin:0;"><input type="hidden" name="csrf" value="{{ csrf }}"><button type="submit" class="btn btn-secondary btn-sm">Test Drive</button></form>
+    </div>
+  </div>
+
+  <!-- Editable Access Code Email Subject & Body Template -->
+  <div class="card" id="emailTemplateCard" style="margin-top:20px;max-width:760px;">
+    <div class="card-header">
+      <div>
+        <div class="card-title">Access Code Email Template (Subject &amp; Body)</div>
+        <span class="muted-text" style="font-size:12px;">Used when sending access codes individually or to all active agents. Supported variables: <code>{name}</code>, <code>{code}</code>, <code>{portal_url}</code></span>
+      </div>
+      <button type="button" class="btn btn-secondary btn-sm" onclick="resetDefaultEmailTemplate('connEmailSubj', 'connEmailBody')">Reset Default</button>
+    </div>
+    <form method="post" action="/dev/email_template/update">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <div class="form-group">
+        <label class="form-label" for="connEmailSubj">Email Subject *</label>
+        <input type="text" id="connEmailSubj" name="email_subject_template" class="form-input" value="{{ rules.email_subject_template }}" required>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="connEmailBody">Email Body *</label>
+        <textarea id="connEmailBody" name="email_body_template" class="form-input" rows="8" style="font-family:monospace;line-height:1.5;height:auto;padding:10px;" required>{{ rules.email_body_template }}</textarea>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+        <span class="muted-text" style="font-size:12px;">Placeholders: <code>{name}</code> (Agent Name), <code>{code}</code> (Access Code), <code>{portal_url}</code> (Portal URL)</span>
+        <button type="submit" class="btn btn-primary">Save Email Template</button>
+      </div>
+    </form>
+  </div>
+
+
+{% elif dv_tab == 'keys' %}
+  <!-- ========================================================
+       DV2 KEYS
+       Table (Name, Service, Added on, Status).
+       Add Key: service, label, value.
+       Values are write-only; after saving show only the last 4 characters, with Replace and Revoke.
+       ======================================================== -->
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:8px;flex-wrap:wrap;">
+    <div>
+      <h2 style="margin:0;">DV2 API Keys</h2>
+      <span class="muted-text">Write-only API keys for OpenRouter, LLMs, and cloud services</span>
+    </div>
+    <button type="button" class="btn btn-primary btn-sm" onclick="openAddKeyModal()">+ Add Key</button>
+  </div>
+
+  <div class="table-container">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Name / Label</th>
+          <th>Service</th>
+          <th>Masked Key</th>
+          <th>Added On</th>
+          <th>Status</th>
+          <th style="text-align:right;">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for k in dev_keys %}
+        <tr>
+          <td style="font-weight:600;">{{ k.label }}</td>
+          <td>{{ k.service }}</td>
+          <td style="font-family:monospace;font-weight:700;">****{{ k.last4 }}</td>
+          <td>{{ k.added_on_str }}</td>
+          <td>
+            {% if k.status == 'Active' %}
+              <span class="status-badge status-accepted">Active</span>
+            {% else %}
+              <span class="status-badge status-limit">Revoked</span>
+            {% endif %}
+          </td>
+          <td style="text-align:right;">
+            <button type="button" class="btn btn-secondary btn-sm" style="height:26px;padding:0 8px;" onclick="openReplaceKeyModal({{ k.id }}, '{{ k.label }}')">Replace</button>
+            {% if k.status == 'Active' %}
+            <form method="post" action="/dev/keys/revoke/{{ k.id }}" style="display:inline-block;margin:0;" onsubmit="return confirm('Revoke this key?');">
+              <input type="hidden" name="csrf" value="{{ csrf }}">
+              <button type="submit" class="btn btn-danger btn-sm" style="height:26px;padding:0 8px;">Revoke</button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="muted-text" style="text-align:center;">No keys registered. Click "+ Add Key".</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+
+{% elif dv_tab == 'admins' %}
+  <!-- ========================================================
+       DV3 ADMINS
+       List of Admins. Create Admin: name, login ID, password. Reset password, Suspend, Delete.
+       ======================================================== -->
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:8px;flex-wrap:wrap;">
+    <div>
+      <h2 style="margin:0;">DV3 Administrators</h2>
+      <span class="muted-text">Manage administrative access accounts</span>
+    </div>
+    <button type="button" class="btn btn-primary btn-sm" onclick="openCreateAdminModal()">+ Create Admin</button>
+  </div>
+
+  <div class="table-container">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Login ID (Email)</th>
+          <th>Status</th>
+          <th>Created On</th>
+          <th style="text-align:right;">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for a in admins_list %}
+        <tr>
+          <td style="font-weight:600;">{{ a.name }}</td>
+          <td>{{ a.email }}</td>
+          <td>
+            {% if a.active %}
+              <span class="status-badge status-accepted">Active</span>
+            {% else %}
+              <span class="status-badge status-limit">Suspended</span>
+            {% endif %}
+          </td>
+          <td>{{ a.created_str }}</td>
+          <td style="text-align:right;white-space:nowrap;">
+            <button type="button" class="btn btn-secondary btn-sm" style="height:26px;padding:0 8px;" onclick="openResetPwdModal({{ a.id }}, '{{ a.name }}')">Reset Password</button>
+            <form method="post" action="/dev/admins/suspend/{{ a.id }}" style="display:inline-block;margin:0;">
+              <input type="hidden" name="csrf" value="{{ csrf }}">
+              <button type="submit" class="btn btn-secondary btn-sm" style="height:26px;padding:0 8px;">
+                {% if a.active %}Suspend{% else %}Activate{% endif %}
+              </button>
+            </form>
+            <button type="button" class="btn btn-danger btn-sm" style="height:26px;padding:0 8px;" onclick="openDeleteModal('/dev/admins/delete/{{ a.id }}', 'Delete Admin {{ a.name }}', 'Deleting an admin account requires a mandatory reason.')">Delete</button>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+
+{% elif dv_tab == 'rules' %}
+  <!-- ========================================================
+       DV4 RULES
+       Editable values: session min 5 and max 15 minutes, user limit 15 h, pair limit 7.5 h, client access URL, email subject & body.
+       ======================================================== -->
+  <div style="margin-bottom:12px;">
+    <h2 style="margin:0;">DV4 System Rules, Limits &amp; Email Template</h2>
+    <span class="muted-text">Core execution rules, session time bounds, portal access URLs, and access code email template</span>
+  </div>
+
+  <div class="card" style="max-width:760px;">
+    <form method="post" action="/dev/rules/update">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      
+      <div class="form-row">
+        <div class="form-group" style="flex:1;">
+          <label class="form-label" for="ruleSessMin">Session Min (Minutes) *</label>
+          <input type="number" id="ruleSessMin" name="session_min_min" class="form-input" value="{{ rules.session_min_min or '5' }}" required min="1">
+        </div>
+        <div class="form-group" style="flex:1;">
+          <label class="form-label" for="ruleSessMax">Session Max (Minutes) *</label>
+          <input type="number" id="ruleSessMax" name="session_max_min" class="form-input" value="{{ rules.session_max_min or '15' }}" required min="1">
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group" style="flex:1;">
+          <label class="form-label" for="rulePairLim">Pair Limit (Hours) *</label>
+          <input type="number" step="0.5" id="rulePairLim" name="pair_limit_h" class="form-input" value="{{ rules.pair_limit_h or '7.5' }}" required>
+        </div>
+        <div class="form-group" style="flex:1;">
+          <label class="form-label" for="ruleUserLim">User Limit (Hours) *</label>
+          <input type="number" step="0.5" id="ruleUserLim" name="user_limit_h" class="form-input" value="{{ rules.user_limit_h or '15.0' }}" required>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="ruleClientUrl">Client Access URL *</label>
+        <input type="url" id="ruleClientUrl" name="client_url" class="form-input" value="{{ rules.client_url or '' }}" required placeholder="https://client-portal.recording-system.com">
+      </div>
+
+      <hr style="border:0;border-top:1px solid var(--border);margin:20px 0;">
+
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+        <div>
+          <div style="font-weight:700;font-size:15px;">Access Code Email Template</div>
+          <span class="muted-text" style="font-size:12px;">Placeholders: <code>{name}</code>, <code>{code}</code>, <code>{portal_url}</code></span>
+        </div>
+        <button type="button" class="btn btn-secondary btn-sm" onclick="resetDefaultEmailTemplate('ruleEmailSubj', 'ruleEmailBody')">Reset Default</button>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="ruleEmailSubj">Email Subject *</label>
+        <input type="text" id="ruleEmailSubj" name="email_subject_template" class="form-input" value="{{ rules.email_subject_template }}" required>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="ruleEmailBody">Email Body *</label>
+        <textarea id="ruleEmailBody" name="email_body_template" class="form-input" rows="8" style="font-family:monospace;line-height:1.5;height:auto;padding:10px;" required>{{ rules.email_body_template }}</textarea>
+      </div>
+
+      <div style="margin-top:16px;">
+        <button type="submit" class="btn btn-primary">Save Rules &amp; Email Template</button>
+      </div>
+    </form>
+  </div>
+
+
+{% elif dv_tab == 'backups' %}
+  <!-- ========================================================
+       DV5 BACKUPS
+       Backup now, backup list, Restore (confirm).
+       ======================================================== -->
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:8px;flex-wrap:wrap;">
+    <div>
+      <h2 style="margin:0;">DV5 Database Backups</h2>
+      <span class="muted-text">Snapshot backups and point-in-time restore</span>
+    </div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;">
+      <form method="post" action="/dev/backups/create" style="margin:0;">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <button type="submit" class="btn btn-primary btn-sm">Backup Now</button>
+      </form>
+      <form method="post" action="/dev/backups/drive_backup" style="margin:0;">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <button type="submit" class="btn btn-secondary btn-sm">Backup to Google Drive</button>
+      </form>
+      <form method="post" action="/dev/connections/sync" style="margin:0;">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <button type="submit" class="btn btn-secondary btn-sm">Cloud Backup (Supabase)</button>
+      </form>
+      <form method="post" action="/dev/connections/restore" style="margin:0;" onsubmit="return confirm('Restore database from Supabase Storage? Local changes will be replaced.');">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <button type="submit" class="btn btn-secondary btn-sm">Restore from Cloud</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="table-container">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Backup Filename</th>
+          <th>Size</th>
+          <th>Created Date</th>
+          <th style="text-align:right;">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for b in backups_list %}
+        <tr>
+          <td style="font-weight:600;font-family:monospace;">{{ b.filename }}</td>
+          <td>{{ b.size_str }}</td>
+          <td>{{ b.created_str }}</td>
+          <td style="text-align:right;">
+            <a href="/dev/backups/download/{{ b.filename }}" class="btn btn-secondary btn-sm" style="height:26px;padding:0 8px;">Download</a>
+            <form method="post" action="/dev/backups/restore/{{ b.filename }}" style="display:inline-block;margin:0;" onsubmit="return confirm('WARNING: Restoring will overwrite current database. Proceed?');">
+              <input type="hidden" name="csrf" value="{{ csrf }}">
+              <button type="submit" class="btn btn-danger btn-sm" style="height:26px;padding:0 8px;">Restore</button>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="4" class="muted-text" style="text-align:center;">No backups available. Click "Backup Now".</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+
+{% elif dv_tab == 'logs' %}
+  <!-- ========================================================
+       DV6 LOGS
+       Tabs: Activity | Errors | Sync | Audit. Filters by date, user. Click a row to see full detail.
+       ======================================================== -->
+  <div style="margin-bottom:12px;">
+    <h2 style="margin:0;">DV6 System Logs</h2>
+    <span class="muted-text">Audit trail and system logs</span>
+  </div>
+
+  <div style="display:flex;gap:6px;margin-bottom:12px;">
+    <a href="/dev/logs?cat=activity" class="btn {% if log_cat == 'activity' %}btn-primary{% else %}btn-secondary{% endif %} btn-sm">Activity</a>
+    <a href="/dev/logs?cat=errors" class="btn {% if log_cat == 'errors' %}btn-primary{% else %}btn-secondary{% endif %} btn-sm">Errors</a>
+    <a href="/dev/logs?cat=sync" class="btn {% if log_cat == 'sync' %}btn-primary{% else %}btn-secondary{% endif %} btn-sm">Sync</a>
+    <a href="/dev/logs?cat=audit" class="btn {% if log_cat == 'audit' %}btn-primary{% else %}btn-secondary{% endif %} btn-sm">Audit</a>
+  </div>
+
+  <div class="table-container">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Timestamp</th>
+          <th>Actor / User</th>
+          <th>Action / Message</th>
+          <th>Detail</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for l in logs_list %}
+        <tr style="cursor:pointer;" onclick="alert('Detail:\n' + {{ l.detail|tojson }})">
+          <td style="white-space:nowrap;font-size:12px;">{{ l.ts_str }}</td>
+          <td style="font-weight:600;">{{ l.actor }}</td>
+          <td>{{ l.message }}</td>
+          <td style="font-family:monospace;font-size:12px;color:var(--muted);max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ l.detail }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="4" class="muted-text" style="text-align:center;">No log entries found.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+{% endif %}
+
+<!-- Add Key Modal (DV2) -->
+<div id="addKeyModal" class="modal-overlay">
+  <div class="modal-box">
+    <div class="modal-title">Add Write-Only Key</div>
+    <form method="post" action="/dev/keys/add">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <div class="form-group">
+        <label class="form-label" for="keyService">Service *</label>
+        <select id="keyService" name="service" class="form-select" required>
+          <option value="OpenRouter">OpenRouter</option>
+          <option value="Anthropic">Anthropic</option>
+          <option value="OpenAI">OpenAI</option>
+          <option value="Google AI">Google AI</option>
+          <option value="Supabase">Supabase</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="keyLabel">Label / Name *</label>
+        <input type="text" id="keyLabel" name="label" class="form-input" required placeholder="e.g. OpenRouter Primary Key">
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="keyVal">Key Value (Write-Only) *</label>
+        <input type="password" id="keyVal" name="key_val" class="form-input" required placeholder="sk-...">
+        <span class="muted-text" style="font-size:11px;display:block;margin-top:2px;">After saving, only the last 4 characters are shown.</span>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-secondary" onclick="closeAddKeyModal()">Cancel</button>
+        <button type="submit" class="btn btn-primary">Save Key</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Replace Key Modal (DV2) -->
+<div id="replaceKeyModal" class="modal-overlay">
+  <div class="modal-box">
+    <div class="modal-title" id="replaceKeyTitle">Replace Key</div>
+    <form method="post" action="/dev/keys/replace">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <input type="hidden" name="key_id" id="replaceKeyId" value="">
+      <div class="form-group">
+        <label class="form-label" for="newKeyVal">New Key Value (Write-Only) *</label>
+        <input type="password" id="newKeyVal" name="key_val" class="form-input" required placeholder="sk-...">
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-secondary" onclick="closeReplaceKeyModal()">Cancel</button>
+        <button type="submit" class="btn btn-primary">Replace Key</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Create Admin Modal (DV3) -->
+<div id="createAdminModal" class="modal-overlay">
+  <div class="modal-box">
+    <div class="modal-title">Create Admin</div>
+    <form method="post" action="/dev/admins/create">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <div class="form-group">
+        <label class="form-label" for="admName">Admin Name *</label>
+        <input type="text" id="admName" name="name" class="form-input" required placeholder="Admin Name">
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="admEmail">Login ID (Email) *</label>
+        <input type="email" id="admEmail" name="email" class="form-input" required placeholder="admin@scriptflow.com">
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="admPwd">Password *</label>
+        <input type="password" id="admPwd" name="password" class="form-input" required placeholder="Enter secure password">
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-secondary" onclick="closeCreateAdminModal()">Cancel</button>
+        <button type="submit" class="btn btn-primary">Create Admin</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Reset Password Modal (DV3) -->
+<div id="resetPwdModal" class="modal-overlay">
+  <div class="modal-box">
+    <div class="modal-title" id="resetPwdTitle">Reset Admin Password</div>
+    <form method="post" action="/dev/admins/reset_pwd">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <input type="hidden" name="admin_id" id="resetPwdAdminId" value="">
+      <div class="form-group">
+        <label class="form-label" for="newAdminPwd">New Password *</label>
+        <input type="password" id="newAdminPwd" name="password" class="form-input" required placeholder="Enter new password">
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-secondary" onclick="closeResetPwdModal()">Cancel</button>
+        <button type="submit" class="btn btn-primary">Reset Password</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Edit Connection Modal (DV1) -->
+<div id="editConnModal" class="modal-overlay">
+  <div class="modal-box" style="max-width:480px;">
+    <div class="modal-title" id="editConnTitle">Edit Connection</div>
+    <form method="post" id="editConnForm" action="/dev/connections/edit/0">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <div class="form-group">
+        <label class="form-label" for="editConnName">Connection Name *</label>
+        <input type="text" id="editConnName" name="name" class="form-input" required>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="editConnService">Service Provider *</label>
+        <input type="text" id="editConnService" name="service" class="form-input" required>
+      </div>
+      <div id="smtpFields" style="display:none;border-top:1px solid var(--border);padding-top:12px;margin-top:12px;">
+        <div style="font-weight:600;font-size:13px;margin-bottom:4px;color:var(--primary);">Email Delivery Configuration</div>
+        <div id="emailNotice" style="font-size:11px;color:#5E7877;margin-bottom:12px;line-height:1.4;background:#F8FAFC;padding:8px 10px;border-radius:6px;border:1px solid #E2E8F0;">
+          <strong>Render Cloud Notice:</strong> Render blocks outbound SMTP ports (587/465) on Free instances. Use <strong>Resend</strong> or <strong>Brevo</strong> over HTTPS (port 443) for 100% reliable free email delivery!
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="emailProviderPreset">Provider / Delivery Method</label>
+          <select id="emailProviderPreset" class="form-select" onchange="onEmailPresetChange(this.value)">
+            <option value="resend">Resend HTTP API (Recommended for Render · HTTPS Port 443)</option>
+            <option value="brevo">Brevo / Sendinblue HTTP API (HTTPS Port 443)</option>
+            <option value="sendgrid">SendGrid HTTP API (HTTPS Port 443)</option>
+            <option value="smtp">Custom SMTP Server (Port 587/465 · Blocked on Render Free)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="smtpHost">Host / Provider Keyword</label>
+          <input type="text" id="smtpHost" name="smtp_host" class="form-input" placeholder="resend, brevo, or smtp.gmail.com">
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+          <div class="form-group">
+            <label class="form-label" for="smtpPort">Port</label>
+            <input type="number" id="smtpPort" name="smtp_port" class="form-input" placeholder="443">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="smtpTls">Use TLS</label>
+            <select id="smtpTls" name="smtp_tls" class="form-select">
+              <option value="1">Enabled (STARTTLS / HTTPS)</option>
+              <option value="0">Disabled / Plain</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="smtpUser">Username / Account</label>
+          <input type="text" id="smtpUser" name="smtp_user" class="form-input" placeholder="resend, apikey, or user@example.com">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="smtpPass" id="smtpPassLabel">API Key / Secret / App Password</label>
+          <input type="password" id="smtpPass" name="smtp_pass" class="form-input" placeholder="re_... or xkeysib-...">
+          <span class="muted-text" style="font-size:11px;display:block;margin-top:2px;">Leave blank to preserve existing key/password.</span>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="smtpFrom">Default Sender Email</label>
+          <input type="email" id="smtpFrom" name="smtp_from" class="form-input" placeholder="onboarding@resend.dev or notifications@scriptflow.com">
+        </div>
+      </div>
+      <div id="supabaseFields" style="display:none;border-top:1px solid var(--border);padding-top:12px;margin-top:12px;">
+        <div style="font-weight:600;font-size:13px;margin-bottom:8px;color:var(--primary);">Supabase Cloud Sync & Storage Configuration</div>
+        <div class="form-group">
+          <label class="form-label" for="supabaseUrl">Supabase URL / Endpoint</label>
+          <input type="text" id="supabaseUrl" name="url" class="form-input" placeholder="https://xyzcompany.supabase.co">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="supabaseKey">API Key (Service Role or Anon)</label>
+          <input type="password" id="supabaseKey" name="key" class="form-input" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...">
+          <span class="muted-text" style="font-size:11px;display:block;margin-top:2px;">Leave blank to preserve existing key.</span>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="supabaseBucket">Storage Bucket</label>
+          <input type="text" id="supabaseBucket" name="bucket" class="form-input" placeholder="factory-data">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="supabasePgUrl">Postgres Connection String (Optional Direct Sync)</label>
+          <input type="text" id="supabasePgUrl" name="postgres_url" class="form-input" placeholder="postgresql://postgres:password@db.xyz.supabase.co:5432/postgres">
+        </div>
+      </div>
+      <div id="driveFields" style="display:none;border-top:1px solid var(--border);padding-top:12px;margin-top:12px;">
+        <div style="font-weight:600;font-size:13px;margin-bottom:8px;color:var(--primary);">Google Drive Storage & Backup Configuration</div>
+        <div class="form-group">
+          <label class="form-label" for="driveFolderId">Google Drive Folder ID *</label>
+          <input type="text" id="driveFolderId" name="folder_id" class="form-input" placeholder="1A2B3C4D5E6F7G8H9I0J...">
+          <span class="muted-text" style="font-size:11px;display:block;margin-top:2px;">Target folder in Google Drive for factory.db backups and recording assets.</span>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="driveServiceAccount">Service Account JSON (or Path)</label>
+          <textarea id="driveServiceAccount" name="service_account_json" class="form-input" rows="3" style="font-family:monospace;font-size:12px;" placeholder='{"type": "service_account", ...}'></textarea>
+          <span class="muted-text" style="font-size:11px;display:block;margin-top:2px;">Paste Service Account JSON credentials or file path.</span>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="driveApiKey">API Key (Optional / Read Only)</label>
+          <input type="password" id="driveApiKey" name="api_key" class="form-input" placeholder="AIzaSy...">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="driveAccessToken">Direct Access Token (Optional)</label>
+          <input type="password" id="driveAccessToken" name="access_token" class="form-input" placeholder="ya29.a0...">
+        </div>
+      </div>
+      <div id="sheetsFields" style="display:none;border-top:1px solid var(--border);padding-top:12px;margin-top:12px;">
+        <div style="font-weight:600;font-size:13px;margin-bottom:8px;color:var(--primary);">Google Sheets Live Sync Configuration</div>
+        <div class="form-group">
+          <label class="form-label" for="sheetsSheetId">Google Spreadsheet ID *</label>
+          <input type="text" id="sheetsSheetId" name="sheet_id" class="form-input" placeholder="e.g. 1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms">
+          <span class="muted-text" style="font-size:11px;display:block;margin-top:2px;">Found in your Google Sheet URL between /d/ and /edit</span>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="sheetsApiKey">API Key (Optional for Read/Test)</label>
+          <input type="password" id="sheetsApiKey" name="api_key" class="form-input" placeholder="AIzaSy...">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="sheetsSa">Service Account JSON (Required for Two-Way / Write Sync)</label>
+          <textarea id="sheetsSa" name="service_account" class="form-input" rows="4" placeholder='{"type": "service_account", "client_email": "...", "private_key": "..."}' style="font-family:monospace;font-size:11px;"></textarea>
+          <span class="muted-text" style="font-size:11px;display:block;margin-top:2px;">Paste Google Cloud Service Account JSON credentials or local path.</span>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-secondary" onclick="closeEditConnModal()">Cancel</button>
+        <button type="submit" class="btn btn-primary">Save Settings</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+function onEmailPresetChange(preset) {
+  const hostInput = document.getElementById('smtpHost');
+  const portInput = document.getElementById('smtpPort');
+  const userInput = document.getElementById('smtpUser');
+  const passInput = document.getElementById('smtpPass');
+  const passLabel = document.getElementById('smtpPassLabel');
+  const fromInput = document.getElementById('smtpFrom');
+  const notice = document.getElementById('emailNotice');
+
+  if (preset === 'resend') {
+    hostInput.value = 'resend';
+    portInput.value = '443';
+    userInput.value = 'resend';
+    passLabel.textContent = 'Resend API Key (re_...)';
+    passInput.placeholder = 're_123456789...';
+    if (!fromInput.value || fromInput.value.includes('notifications@scriptflow')) {
+      fromInput.value = 'onboarding@resend.dev';
+    }
+    notice.innerHTML = '<strong>Resend HTTP API (Port 443):</strong> Fully unblocked on Render. Get your free API key at <a href="https://resend.com" target="_blank" style="color:var(--primary);font-weight:600;">resend.com</a> (3,000 free emails/mo).';
+  } else if (preset === 'brevo') {
+    hostInput.value = 'brevo';
+    portInput.value = '443';
+    userInput.value = '';
+    passLabel.textContent = 'Brevo API Key (xkeysib-...)';
+    passInput.placeholder = 'xkeysib-...';
+    notice.innerHTML = '<strong>Brevo HTTP API (Port 443):</strong> Fully unblocked on Render. Get your free API key at <a href="https://brevo.com" target="_blank" style="color:var(--primary);font-weight:600;">brevo.com</a> (300 free emails/day).';
+  } else if (preset === 'sendgrid') {
+    hostInput.value = 'sendgrid';
+    portInput.value = '443';
+    userInput.value = 'apikey';
+    passLabel.textContent = 'SendGrid API Key (SG....)';
+    passInput.placeholder = 'SG.xxxxxxxx...';
+    notice.innerHTML = '<strong>SendGrid HTTP API (Port 443):</strong> Fully unblocked on Render.';
+  } else {
+    hostInput.value = 'smtp.gmail.com';
+    portInput.value = '587';
+    passLabel.textContent = 'SMTP Password / App Password';
+    passInput.placeholder = '••••••••';
+    notice.innerHTML = '<strong style="color:#C53030;">Render Free Tier Notice:</strong> Render blocks outbound SMTP ports 587 and 465. Connecting to Gmail SMTP from Render will fail with [Errno 101] Network is unreachable. Use Resend or Brevo for free on Render!';
+  }
+}
+
+function editConnModal(id, name, service, configStr) {
+  document.getElementById('editConnForm').action = '/dev/connections/edit/' + id;
+  document.getElementById('editConnTitle').textContent = 'Configure: ' + name;
+  document.getElementById('editConnName').value = name;
+  document.getElementById('editConnService').value = service;
+
+  const isEmail = service.toLowerCase().includes('email') || name.toLowerCase().includes('email');
+  const smtpSection = document.getElementById('smtpFields');
+  if (isEmail) {
+    smtpSection.style.display = 'block';
+    let cfg = {};
+    try { if (configStr) cfg = typeof configStr === 'string' ? JSON.parse(configStr) : configStr; } catch(e){}
+    const host = (cfg.host || '').toLowerCase();
+    const pwd = (cfg.password || '');
+    let preset = 'resend';
+    if (pwd.startsWith('re_') || host.includes('resend')) preset = 'resend';
+    else if (pwd.startsWith('xkeysib-') || host.includes('brevo') || host.includes('sendinblue')) preset = 'brevo';
+    else if (pwd.startsWith('SG.') || cfg.user === 'apikey' || host.includes('sendgrid')) preset = 'sendgrid';
+    else if (host.includes('smtp') || host.includes('gmail')) preset = 'smtp';
+    
+    document.getElementById('emailProviderPreset').value = preset;
+    document.getElementById('smtpHost').value = cfg.host || (preset === 'resend' ? 'resend' : 'smtp.gmail.com');
+    document.getElementById('smtpPort').value = cfg.port || (preset === 'smtp' ? 587 : 443);
+    document.getElementById('smtpUser').value = cfg.user || (preset === 'resend' ? 'resend' : '');
+    document.getElementById('smtpPass').value = cfg.password || '';
+    document.getElementById('smtpFrom').value = cfg.from_email || (preset === 'resend' ? 'onboarding@resend.dev' : 'notifications@scriptflow.com');
+    document.getElementById('smtpTls').value = (cfg.tls !== false && cfg.tls !== 0 && cfg.tls !== '0') ? '1' : '0';
+  } else {
+    smtpSection.style.display = 'none';
+  }
+
+  const isSupabase = service.toLowerCase().includes('supabase') || name.toLowerCase().includes('supabase');
+  const supabaseSection = document.getElementById('supabaseFields');
+  if (isSupabase) {
+    supabaseSection.style.display = 'block';
+    let cfg = {};
+    try { if (configStr) cfg = typeof configStr === 'string' ? JSON.parse(configStr) : configStr; } catch(e){}
+    document.getElementById('supabaseUrl').value = cfg.url || cfg.supabase_url || '';
+    document.getElementById('supabaseKey').value = cfg.key || cfg.supabase_key || '';
+    document.getElementById('supabaseBucket').value = cfg.bucket || cfg.supabase_bucket || 'factory-data';
+    document.getElementById('supabasePgUrl').value = cfg.postgres_url || cfg.supabase_postgres_url || '';
+  } else {
+    supabaseSection.style.display = 'none';
+  }
+
+  const isSheets = service.toLowerCase().includes('sheet') || name.toLowerCase().includes('sheet');
+  const sheetsSection = document.getElementById('sheetsFields');
+  if (isSheets) {
+    sheetsSection.style.display = 'block';
+    let cfg = {};
+    try { if (configStr) cfg = typeof configStr === 'string' ? JSON.parse(configStr) : configStr; } catch(e){}
+    document.getElementById('sheetsSheetId').value = cfg.sheet_id || cfg.google_sheet_id || cfg.spreadsheet_id || '';
+    document.getElementById('sheetsApiKey').value = cfg.api_key || cfg.google_api_key || '';
+    document.getElementById('sheetsSa').value = typeof cfg.service_account === 'object' ? JSON.stringify(cfg.service_account, null, 2) : (cfg.service_account || cfg.service_account_json || '');
+  } else {
+    sheetsSection.style.display = 'none';
+  }
+
+  const isDrive = service.toLowerCase().includes('drive') || name.toLowerCase().includes('drive');
+  const driveSection = document.getElementById('driveFields');
+  if (isDrive) {
+    driveSection.style.display = 'block';
+    let cfg = {};
+    try { if (configStr) cfg = typeof configStr === 'string' ? JSON.parse(configStr) : configStr; } catch(e){}
+    document.getElementById('driveFolderId').value = cfg.folder_id || '';
+    document.getElementById('driveServiceAccount').value = typeof cfg.service_account_json === 'object' ? JSON.stringify(cfg.service_account_json, null, 2) : (cfg.service_account_json || cfg.credentials_json || cfg.credentials_path || '');
+    document.getElementById('driveApiKey').value = cfg.api_key || '';
+    document.getElementById('driveAccessToken').value = cfg.access_token || '';
+  } else {
+    driveSection.style.display = 'none';
+  }
+
+  document.getElementById('editConnModal').classList.add('active');
+}
+function closeEditConnModal() {
+  document.getElementById('editConnModal').classList.remove('active');
+}
+
+function openAddKeyModal() { document.getElementById('addKeyModal').classList.add('active'); }
+function closeAddKeyModal() { document.getElementById('addKeyModal').classList.remove('active'); }
+
+function openReplaceKeyModal(id, label) {
+  document.getElementById('replaceKeyId').value = id;
+  document.getElementById('replaceKeyTitle').textContent = 'Replace Key: ' + label;
+  document.getElementById('replaceKeyModal').classList.add('active');
+}
+function closeReplaceKeyModal() { document.getElementById('replaceKeyModal').classList.remove('active'); }
+
+function openCreateAdminModal() { document.getElementById('createAdminModal').classList.add('active'); }
+function closeCreateAdminModal() { document.getElementById('createAdminModal').classList.remove('active'); }
+
+function openResetPwdModal(id, name) {
+  document.getElementById('resetPwdAdminId').value = id;
+  document.getElementById('resetPwdTitle').textContent = 'Reset Password for ' + name;
+  document.getElementById('resetPwdModal').classList.add('active');
+}
+function closeResetPwdModal() { document.getElementById('resetPwdModal').classList.remove('active'); }
+
+const DEFAULT_EMAIL_SUBJECT = {{ (rules.default_email_subject or 'Your ScriptFlow Portal Access Code: {code}')|tojson }};
+const DEFAULT_EMAIL_BODY = {{ (rules.default_email_body or '')|tojson }};
+
+function resetDefaultEmailTemplate(subjId, bodyId) {
+  const s = document.getElementById(subjId);
+  const b = document.getElementById(bodyId);
+  if (s) s.value = DEFAULT_EMAIL_SUBJECT;
+  if (b && DEFAULT_EMAIL_BODY) b.value = DEFAULT_EMAIL_BODY;
+}
+</script>
+{% endblock %}

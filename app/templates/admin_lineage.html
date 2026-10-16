@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block body %}
+<div class="pagehead"><div>
+  <h1>Script: {{ s.code }}</h1>
+  <div class="small mute">{{ s.status }} · {{ s.domain }} / {{ s.subdomain }} · wave {{ s.wave }} · source {{ s.source }}</div>
+</div></div>
+
+<div class="card">
+  <h2>Script Content</h2>
+  {% if script_text %}
+  <div style="background:var(--bg); padding:1.5rem; border:1px solid var(--line); border-radius:8px; white-space:pre-wrap; font-family:var(--mono); font-size:.85rem; max-height:500px; overflow-y:auto; line-height:1.7;">{{ script_text }}</div>
+  {% else %}
+  <p class="mute">No script content available.</p>
+  {% endif %}
+</div>
+
+<div class="grid g2">
+  <div class="card"><h2>Versions</h2>
+  {% for v in versions %}<div class="small" style="padding:.4rem 0; border-bottom:1px solid var(--line);">v{{ v.version }} · {{ v.words }} words · {{ v.created_at|ist }}</div>
+  {% else %}<span class="mute">None</span>{% endfor %}
+  </div>
+
+  <div class="card"><h2>Assignments</h2>
+  {% for a in assigns %}<div class="small" style="padding:.4rem 0; border-bottom:1px solid var(--line);">
+    #{{ a.id }} · pair {{ a.pair_id }} · <span class="pill {{ 'ok' if a.status=='CONFIRMED' else 'warn' }}">{{ a.status }}</span> · {{ a.conf_min or '' }} min
+  </div>{% else %}<span class="mute">Never assigned</span>{% endfor %}
+  </div>
+</div>
+{% endblock %}

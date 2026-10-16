@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block body %}
+<div class="pagehead"><div><a href="/review" class="small">← Queue</a><h1>{{ s.code }}</h1>
+  <div class="small mute">{{ s.subdomain }}{{ ' · '~s.specialisation if s.specialisation }} · wave {{ s.wave }} · v{{ s.version }} · {{ s.words }} words · prompt {{ s.prompt_version or '-' }}
+  {% if s.is_test %} · <span class="pill warn">STUB TEST TEXT</span>{% endif %}</div></div></div>
+
+<div class="grid g2" style="grid-template-columns:minmax(0,3fr) minmax(0,2fr)">
+<div>
+  {% if s.status=='NEEDS_HUMAN' %}
+  <div class="card"><h2>Auto-repair failed</h2><p class="small mute">The system never keeps output that fails validators. Errors from the last attempt:</p>
+    <p><code>{{ job.error if job else '' }}</code></p>
+    <form method="post" action="/admin/script/{{ s.id }}/retry" style="display:inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn">Retry with a new seed</button></form></div>
+  <div class="card"><h2>Write it by hand</h2><p class="small mute">One line per turn: <code>{{ attrs.roles[0] }}: …</code> / <code>{{ attrs.roles[1] }}: …</code>. Same validators apply.</p>
+    <form method="post" action="/review/{{ s.id }}"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="verdict" value="manual">
+      <textarea name="text" style="min-height:300px" required></textarea><button class="btn pri" style="margin-top:.6rem">Validate and submit for review</button></form></div>
+  {% else %}
+  <div class="card"><h2>Script</h2>
+    <form method="post" action="/review/{{ s.id }}"><input type="hidden" name="csrf" value="{{ csrf }}">
+      <textarea name="text" id="txt" class="script" style="min-height:420px;font-size:1.05rem;line-height:1.7">{{ text }}</textarea>
+      <p class="small mute">Edit the text above to fix small issues, then choose "Fix and approve". Word count rule: speech only, labels excluded.</p>
+      <div class="row">
+        <button class="btn pri" name="verdict" value="accept">Accept</button>
+        <button class="btn" name="verdict" value="fix">Fix and approve</button></div>
+      <h3 style="margin-top:1rem">Reject</h3>
+      <div class="row"><select name="reason" style="max-width:240px">{% for r in reasons %}<option>{{ r }}</option>{% endfor %}</select>
+        <button class="btn bad" name="verdict" value="reject">Reject and regenerate</button></div>
+    </form></div>
+  {% endif %}
+</div>
+<div>
+  <div class="card"><h2>Checklist</h2>
+    <ul style="padding-left:1.1rem;margin:0">
+      <li>Reads natural when spoken aloud</li><li>Register matches: <b>{{ attrs.register }}</b></li><li>Code-switching level: <b>{{ attrs.code_switch }}</b></li>
+      <li>Topic matches: <b>{{ attrs.scenario }}</b></li><li>Names and figures only from the list below</li><li>These ideas appear naturally: <b>{{ attrs.vocab|join(', ') }}</b></li>
+      <li>Gender forms agree: A is {{ attrs.genders.A }}, B is {{ attrs.genders.B }}</li><li>No real brands or people</li></ul></div>
+  <div class="card"><h2>Allowed names and figures</h2>
+    <div class="small"><b>A</b> {{ attrs.roles[0] }}: {{ attrs.names.A }}<br><b>B</b> {{ attrs.roles[1] }}: {{ attrs.names.B }}</div>
+    <div class="small" style="margin-top:.5rem">{% for k,v in attrs.entities.items() %}{{ k.replace('_',' ') }}: <b>{{ v }}</b><br>{% endfor %}</div></div>
+  <div class="card"><h2>Validators</h2>{% if errs %}{% for e in errs %}<div class="alert bad">{{ e }}</div>{% endfor %}{% else %}<span class="pill ok">all pass</span>{% endif %}</div>
+  {% if judge %}<div class="card"><h2>Judge ({{ judge.model }})</h2><div class="small">{% for k,v in judge.scores.items() %}{{ k }}: <b>{{ v }}</b> · {% endfor %}</div>
+    {% for f in judge.flags %}<div class="alert warn">{{ f }}</div>{% endfor %}</div>{% endif %}
+</div></div>
+{% endblock %}

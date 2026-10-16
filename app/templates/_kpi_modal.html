@@ -1,0 +1,192 @@
+<!-- Global KPI drill-down: every KPI card in the admin/supervisor app opens the rows behind it. -->
+<div id="kpiModal" class="kpi-modal" aria-hidden="true">
+  <div class="kpi-modal-box" role="dialog" aria-modal="true" aria-labelledby="kpiTitle">
+    <div class="kpi-modal-head">
+      <div><span id="kpiTitle"></span><span id="kpiCount"></span></div>
+      <div style="display:flex;gap:6px;">
+        <button type="button" class="btn btn-secondary btn-sm" onclick="exportKpi()">Export CSV</button>
+        <button type="button" class="btn btn-secondary btn-sm" onclick="closeKpi()">Close ✕</button>
+      </div>
+    </div>
+    <div class="kpi-modal-search" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+      <input id="kpiSearch" placeholder="Search…" oninput="filterKpi()" autocomplete="off" style="flex:1;min-width:180px;">
+      <div id="kpiChips" style="display:flex;gap:6px;flex-wrap:wrap;"></div>
+    </div>
+    <div id="kpiHint" style="padding:6px 18px 0;font-size:11.5px;color:var(--muted);display:none;">Click a column to sort. Click a row to open it.</div>
+    <div class="kpi-modal-body">
+      <table class="data-table"><thead id="kpiHead"></thead><tbody id="kpiBody"></tbody></table>
+      <div id="kpiEmpty">Nothing here yet.</div>
+    </div>
+  </div>
+</div>
+<script>
+(function(){
+  var LANG = {{ (kpi_lang if kpi_lang is defined and kpi_lang else 'all')|tojson }};
+  var AGENT = {{ (kpi_agent if kpi_agent is defined else '')|tojson }};
+  var LABELS = {
+    'total people':'ag_total','active agents':'ag_active','total agents':'ag_active','paired up':'ag_paired','paired agents':'ag_paired',
+    'unpaired':'ag_unpaired','unpaired agents':'ag_unpaired','inactive agents':'ag_inactive',
+    'total pairs':'pr_total','active pairs (< 7.5h)':'pr_active','limit reached (>= 7.5h)':'pr_limit',
+    'total scripts':'sc_total','available scripts':'sc_available','total available scripts to assign':'sc_available','available to assign':'sc_available',
+    'assigned':'sc_assigned','total assigned':'sc_assigned','assigned scripts':'sc_assigned',
+    'pending':'sc_pending','pending recording':'sc_pending','pending scripts':'sc_pending',
+    'completed':'sc_completed','completed scripts':'sc_completed','completed / submitted':'sc_completed',
+    'accepted submissions':'sc_accepted','accepted hours':'sc_accepted','accepted scripts':'sc_accepted',
+    'recorded hours':'sc_recorded','recorded (15h cap)':'sc_recorded','total submissions':'sc_recorded',
+    'review pending':'sc_review_pending','review pend.':'sc_review_pending','pending review':'sc_review_pending',
+    'rejected':'sc_rejected','rejected submissions':'sc_rejected'
+  };
+  var cols = [], rows = [], meta = [], title = '', sortCol = -1, sortDir = 1, chip = '', statusCol = -1, lastFocus = null;
+  var $ = function(id){ return document.getElementById(id); };
+  var esc = function(x){ return String(x == null ? '' : x).replace(/[&<>"]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); };
+
+  window.openKpi = function(kind, lang, agent, label){
+    lastFocus = document.activeElement; sortCol = -1; sortDir = 1; chip = ''; statusCol = -1; meta = [];
+    $('kpiChips').innerHTML = ''; $('kpiHint').style.display = 'none';
+    $('kpiTitle').textContent = label || kind;
+    $('kpiCount').textContent = '';
+    $('kpiSearch').value = '';
+    $('kpiHead').innerHTML = '';
+    $('kpiEmpty').style.display = 'none';
+    $('kpiBody').innerHTML = '<tr><td style="padding:18px;color:var(--muted)">Loading…</td></tr>';
+    $('kpiModal').classList.add('open');
+    $('kpiModal').setAttribute('aria-hidden', 'false');
+    var qs = 'kind=' + encodeURIComponent(kind) + '&lang_id=' + encodeURIComponent(lang || LANG || 'all') + (agent ? '&agent_id=' + encodeURIComponent(agent) : '');
+    fetch('/admin/kpi_rows?' + qs, {credentials:'same-origin'})
+      .then(function(r){ if (!r.ok) throw new Error(r.status); return r.json(); })
+      .then(function(d){
+        title = d.title || label || kind; cols = d.columns || []; rows = d.rows || []; meta = d.meta || [];
+        $('kpiTitle').textContent = title;
+        statusCol = cols.map(function(c){ return String(c).toLowerCase(); }).indexOf('status');
+        buildChips();
+        var clickable = meta.some(function(m){ return m && (m.href || m.pair); });
+        $('kpiHint').textContent = clickable ? 'Click a column to sort. Click a row to open it.' : 'Click a column to sort.';
+        $('kpiHint').style.display = rows.length ? 'block' : 'none';
+        filterKpi();
+        setTimeout(function(){ $('kpiSearch').focus(); }, 30);
+      })
+      .catch(function(){ $('kpiBody').innerHTML = '<tr><td style="padding:18px;color:var(--st-rejected,#c00)">Could not load this list. Reload and try again.</td></tr>'; });
+  };
+  window.closeKpi = function(){
+    $('kpiModal').classList.remove('open'); $('kpiModal').setAttribute('aria-hidden', 'true');
+    if (lastFocus && lastFocus.focus) { try { lastFocus.focus(); } catch (e) {} }
+  };
+  function buildChips(){
+    var box = $('kpiChips'); box.innerHTML = '';
+    if (statusCol < 0) return;
+    var seen = {}, vals = [];
+    rows.forEach(function(r){ var v = String(r[statusCol]); if (!seen[v]) { seen[v] = 1; vals.push(v); } });
+    if (vals.length < 2) return;
+    ['All'].concat(vals).forEach(function(v){
+      var b = document.createElement('button'); b.type = 'button'; b.className = 'btn btn-secondary btn-sm' + (v === 'All' ? ' btn-primary' : '');
+      b.style.cssText = 'height:26px;padding:0 8px;'; b.textContent = v; b.setAttribute('data-chip', v === 'All' ? '' : v);
+      b.addEventListener('click', function(){
+        chip = this.getAttribute('data-chip');
+        Array.prototype.forEach.call(box.children, function(x){ x.classList.toggle('btn-primary', x === b); });
+        filterKpi();
+      });
+      box.appendChild(b);
+    });
+  }
+  function visible(){
+    var q = ($('kpiSearch').value || '').toLowerCase();
+    var out = [];
+    rows.forEach(function(r, i){
+      if (chip && statusCol >= 0 && String(r[statusCol]) !== chip) return;
+      if (q && r.join(' ').toLowerCase().indexOf(q) < 0) return;
+      out.push({r: r, m: meta[i] || null});
+    });
+    if (sortCol >= 0) {
+      out.sort(function(a, b){
+        var x = a.r[sortCol], y = b.r[sortCol], nx = parseFloat(x), ny = parseFloat(y);
+        var c = (!isNaN(nx) && !isNaN(ny) && /^[\d.:\s-]+h?$/.test(String(x)) && /^[\d.:\s-]+h?$/.test(String(y))) ? (nx - ny) : String(x).localeCompare(String(y), undefined, {numeric: true, sensitivity: 'base'});
+        return c * sortDir;
+      });
+    }
+    return out;
+  }
+  function openRow(m){
+    if (!m) return;
+    if (m.pair && typeof window.openPairScriptsModal === 'function') { closeKpi(); window.openPairScriptsModal(m.pair); return; }
+    if (m.href) window.location.href = m.href;
+  }
+  window.sortKpi = function(i){ if (sortCol === i) sortDir = -sortDir; else { sortCol = i; sortDir = 1; } filterKpi(); };
+  window.filterKpi = function(){
+    var out = visible();
+    $('kpiHead').innerHTML = '<tr><th>#</th>' + cols.map(function(c, i){
+      var arrow = sortCol === i ? (sortDir > 0 ? ' ▲' : ' ▼') : '';
+      return '<th style="cursor:pointer;user-select:none;white-space:nowrap;" onclick="sortKpi(' + i + ')" title="Sort by ' + esc(c) + '">' + esc(c) + arrow + '</th>';
+    }).join('') + '</tr>';
+    $('kpiBody').innerHTML = '';
+    out.forEach(function(o, i){
+      var tr = document.createElement('tr');
+      tr.innerHTML = '<td>' + (i + 1) + '</td>' + o.r.map(function(v){ return '<td>' + esc(v) + '</td>'; }).join('');
+      if (o.m && (o.m.href || o.m.pair)) {
+        tr.style.cursor = 'pointer'; tr.tabIndex = 0; tr.title = 'Click to open';
+        tr.addEventListener('click', function(){ openRow(o.m); });
+        tr.addEventListener('keydown', function(e){ if (e.key === 'Enter') openRow(o.m); });
+      }
+      $('kpiBody').appendChild(tr);
+    });
+    $('kpiCount').textContent = out.length + ' row' + (out.length === 1 ? '' : 's');
+    $('kpiEmpty').style.display = out.length ? 'none' : 'block';
+  };
+  window.exportKpi = function(){
+    var out = visible().map(function(o){ return o.r; });
+    var cell = function(v){ return '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"'; };
+    var csv = [cols].concat(out).map(function(r){ return r.map(cell).join(','); }).join('\n');
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([csv], {type:'text/csv'}));
+    a.download = (title || 'kpi').replace(/[^a-z0-9]+/gi, '_').toLowerCase() + '.csv';
+    document.body.appendChild(a); a.click(); a.remove();
+  };
+  document.addEventListener('keydown', function(e){ if (e.key === 'Escape') closeKpi(); });
+  $('kpiModal').addEventListener('click', function(e){ if (e.target === this) closeKpi(); });
+
+  function attach(box, kind, lang, agent, label){
+    if (box.dataset.kpiWired) return;
+    box.dataset.kpiWired = '1';
+    box.classList.add('kpi-live');
+    box.setAttribute('role', 'button');
+    box.tabIndex = 0;
+    box.title = 'Click to see the rows behind this number';
+    var go = function(ev){ ev.preventDefault(); ev.stopPropagation(); openKpi(kind, lang, agent, label); };
+    box.addEventListener('click', go);
+    box.addEventListener('keydown', function(ev){ if (ev.key === 'Enter' || ev.key === ' ') go(ev); });
+  }
+  function skip(el){ return el.closest('[data-kpi-skip], table, [id$="Modal"], .modal, button, a, select, label, form'); }
+
+  function wireAll(){
+    // 1. explicit: <div data-kpi="pr_active" [data-kpi-lang] [data-kpi-agent]>
+    document.querySelectorAll('[data-kpi]').forEach(function(b){
+      attach(b, b.dataset.kpi, b.dataset.kpiLang || LANG, b.dataset.kpiAgent || '', (b.querySelector('.kpi-label') || b).textContent.trim());
+    });
+    // 2. automatic: any leaf label whose text is a known KPI name, with the card = its parent
+    document.querySelectorAll('main div, main span, .content div, .content span, #content div').forEach(function(lbl){
+      if (lbl.children.length || skip(lbl)) return;
+      var key = (lbl.textContent || '').trim().toLowerCase().replace(/\s+/g, ' ');
+      var kind = LABELS[key];
+      if (!kind) return;
+      var box = lbl.parentElement;
+      if (!box || box.dataset.kpiWired || skip(box)) return;
+      // must look like a stat card: a sibling holding a number
+      var num = Array.prototype.some.call(box.children, function(ch){ return ch !== lbl && /^[\d.,]+\s*(h|%)?$/.test((ch.textContent || '').trim().split('\n')[0]); });
+      if (!num) return;
+      var grid = box.closest('.kpi-grid');
+      var agent = (AGENT && grid && /total assigned/i.test(grid.textContent)) ? AGENT : '';
+      attach(box, kind, LANG, agent, lbl.textContent.trim());
+    });
+    // 3. dashboard language cards carry their own language in onclick
+    document.querySelectorAll('.language-card').forEach(function(card){
+      var m = (card.getAttribute('onclick') || '').match(/lang_id=(\d+)/);
+      card.querySelectorAll('div').forEach(function(lbl){
+        if (lbl.children.length) return;
+        var kind = LABELS[(lbl.textContent || '').trim().toLowerCase()];
+        var box = lbl.parentElement;
+        if (kind && box && !box.dataset.kpiWired) attach(box, kind, m ? m[1] : 'all', '', lbl.textContent.trim());
+      });
+    });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', wireAll); else wireAll();
+})();
+</script>

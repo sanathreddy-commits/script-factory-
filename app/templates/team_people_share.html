@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block body %}
+<div class="pagehead">
+  <div>
+    <h1>Send Codes to All Agents</h1>
+    <div class="small mute">Broadcast access codes and login instructions to all agents ({{ agents|length }} total).</div>
+  </div>
+  <div class="row">
+    <a href="/team/people" class="btn sm">← Back to People</a>
+    <a href="/team/people/export_codes" class="btn sm">📥 Download CSV</a>
+  </div>
+</div>
+
+<div class="grid g2" style="margin-bottom:1.5rem">
+  <div class="card" style="border:1px solid var(--acc); background:var(--card)">
+    <h2>📧 Bulk Email All Agents</h2>
+    <p class="small mute">Open your email app with all registered agent email addresses pre-filled in BCC.</p>
+    {% if bcc %}
+    <a class="btn pri" style="margin-top:.5rem" href="mailto:?bcc={{ bcc }}&subject={{ subject|urlencode }}&body={{ body|urlencode }}">
+      Email All {{ agents|length }} Agents (BCC)
+    </a>
+    {% else %}
+    <p class="small" style="color:var(--warn)">No agent emails registered yet.</p>
+    {% endif %}
+  </div>
+
+  <div class="card" style="border:1px solid var(--ok); background:var(--card)">
+    <h2>📋 Copy Roster & Codes</h2>
+    <p class="small mute">Copy the full roster of names, phone numbers, and access codes to paste into WhatsApp Web or a spreadsheet.</p>
+    <button class="btn" style="margin-top:.5rem" onclick="navigator.clipboard.writeText(document.getElementById('roster-text').value); alert('All codes copied to clipboard!');">
+      Copy All Codes to Clipboard
+    </button>
+    <textarea id="roster-text" style="display:none">{{ all_text }}</textarea>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Individual Agent Access Codes ({{ agents|length }})</h2>
+  <div class="tw">
+    <table class="stack">
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Language</th>
+          <th>Access Code</th>
+          <th>Phone</th>
+          <th>Email</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for a in agents %}
+        <tr>
+          <td data-l="Name"><b>{{ a.name }}</b></td>
+          <td data-l="Language"><span class="pill gray">{{ a.lang_name }}</span></td>
+          <td data-l="Code"><span class="mono" style="font-weight:700;font-size:1.1rem;letter-spacing:1px;background:var(--acc2);color:var(--acc);padding:2px 8px;border-radius:4px">{{ a.code }}</span></td>
+          <td data-l="Phone" class="mono">{{ a.phone or '-' }}</td>
+          <td data-l="Email" class="mono">{{ a.email or '-' }}</td>
+          <td class="act">
+            {% if a.phone %}
+            <a class="btn sm pri" style="background:#25d366;border-color:#25d366;color:#fff" href="https://wa.me/91{{ a.phone }}?text={{ a.msg|urlencode }}" target="_blank" rel="noopener">WhatsApp</a>
+            {% endif %}
+            {% if a.email %}
+            <a class="btn sm" href="mailto:{{ a.email }}?subject=Your ScriptFactory Access Code&body={{ a.msg|urlencode }}">Email</a>
+            {% endif %}
+            <button class="btn sm" onclick="navigator.clipboard.writeText('{{ a.msg }}'); alert('Login message copied for {{ a.name }}!');">Copy Link</button>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="mute">No active agents found.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

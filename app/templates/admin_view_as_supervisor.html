@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}View as supervisor{% endblock %}
+{% block pagetitle %}View as supervisor{% endblock %}
+{% block content %}
+<h1 class="page-title" style="margin:0 0 4px;">View as supervisor</h1>
+<span class="muted-text">Opens the supervisor dashboard exactly as that supervisor sees it. Use "Back to my view" to return.</span>
+<form method="get" style="margin:14px 0;"><input name="q" value="{{ q }}" placeholder="Search name or phone" class="form-input" style="max-width:320px;"></form>
+<div class="table-container"><table class="data-table"><thead><tr><th>Supervisor</th><th>Language</th><th>Phone</th><th>Status</th><th></th></tr></thead><tbody>
+{% for s in supervisors %}<tr><td style="font-weight:600;">{{ s.name }}</td><td>{{ s.lang }}</td><td>{{ s.phone or '-' }}</td><td>{% if s.active %}<span class="status-badge status-available">Active</span>{% else %}<span class="status-badge status-rejected">Inactive</span>{% endif %}</td><td style="text-align:right;">{% if s.active %}<a class="btn btn-secondary btn-sm" href="/admin/supervisors/login_as/{{ s.id }}">Open supervisor view</a>{% else %}<span class="muted-text">inactive</span>{% endif %}</td></tr>
+{% else %}<tr><td colspan="5" class="muted-text" style="text-align:center;">No supervisors found.</td></tr>{% endfor %}
+</tbody></table></div>
+{% endblock %}

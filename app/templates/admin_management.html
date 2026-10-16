@@ -1,0 +1,2572 @@
+{% extends "base.html" %}
+{% block title %}
+  {% if active_tab == 'scripts' %}Scripts
+  {% elif active_tab == 'pairs' %}Pairs
+  <hr style="border:0;border-top:2px solid #DCEDEC;margin:28px 0 20px;">
+  <!-- AD5 SCRIPT ASSIGNMENT (same tab as pairs) -->Scripts Assignment
+  {% elif active_tab == 'reports' %}Reports
+  {% elif active_tab == 'client_access' %}Client Access Links
+  {% else %}Agents{% endif %} · ScriptFlow
+{% endblock %}
+
+{% block pagetitle %}
+  {% if active_tab == 'scripts' %}Scripts
+  {% elif active_tab in ('pairs', 'assignment') %}Pairs &amp; Assignment
+  {% elif active_tab == 'reports' %}Reports
+  {% elif active_tab == 'client_access' %}Client Access Links
+  {% else %}Agents{% endif %}
+{% endblock %}
+
+{% block content %}
+{% if active_tab == 'agents' %}
+  <!-- ========================================================
+       AGENTS
+       Table: Sl No | Access Code (copy icon) | Name | Language | Phone | Email | Gender | Availability | Paired With | Assigned | Completed | Pending | Recorded x / 15 h | Accepted | Actions (Edit, Delete, Active/Inactive, Access Code).
+       Buttons: Bulk Upload Agents, Send Access Code to All, Add Agent (manual form).
+       ======================================================== -->
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:8px;flex-wrap:wrap;">
+    <div>
+      <h2 style="margin:0;">Agents</h2>
+      <span class="muted-text">Total {{ agents|length }} agents listed</span>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+      <form method="post" action="/admin/sheets/sync" style="margin:0;">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <button type="submit" class="btn btn-secondary btn-sm" style="display:inline-flex;align-items:center;gap:6px;" title="Write the current agents, pairs and scripts OUT to your Google Sheet (mirror). To read agents IN from a sheet use Import Agents.">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/>
+          </svg>
+          Push to Sheet
+        </button>
+      </form>
+      <button type="button" class="btn btn-secondary btn-sm" onclick="openBulkAgentModal()">Import Agents</button>
+      <form method="post" action="/admin/agents/send_codes_all" style="margin:0;" onsubmit="return confirm('Send access codes to ALL active agents (including those already sent)?');">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <button type="submit" class="btn btn-secondary btn-sm">Send Code to All</button>
+      </form>
+      <form method="post" action="/admin/agents/send_codes_unsent" style="margin:0;" onsubmit="return confirm('Send access codes only to agents who have not been sent one yet?');">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <button type="submit" class="btn btn-secondary btn-sm" title="Sends only to agents never sent a code before">Send to Unsent</button>
+      </form>
+      <button type="button" class="btn btn-primary btn-sm" onclick="openAddAgentModal()">+ Add Agent</button>
+    </div>
+  </div>
+
+  <!-- KPI Summary Cards (Image 5 style: border-left 4px accent) -->
+  <div class="kpi-grid" style="grid-template-columns:repeat(auto-fit, minmax(200px, 1fr));gap:12px;margin-bottom:16px;">
+    <div class="card kpi-live" data-kpi="ag_total" style="margin-bottom:0;text-align:center;padding:16px;border-left:4px solid var(--primary);">
+      <div class="kpi-num">{{ agents_kpis.total_people }}</div>
+      <div class="kpi-label">Total People</div>
+    </div>
+    <div class="card kpi-live" data-kpi="ag_active" style="margin-bottom:0;text-align:center;padding:16px;border-left:4px solid var(--st-accepted);">
+      <div class="kpi-num" style="color:var(--st-accepted);">{{ agents_kpis.active_agents }}</div>
+      <div class="kpi-label">Active Agents</div>
+    </div>
+    <div class="card kpi-live" data-kpi="ag_paired" style="margin-bottom:0;text-align:center;padding:16px;border-left:4px solid #3B82F6;">
+      <div class="kpi-num" style="color:#3B82F6;">{{ agents_kpis.paired_count }}</div>
+      <div class="kpi-label">Paired Up</div>
+    </div>
+    <div class="card kpi-live" data-kpi="ag_unpaired" style="margin-bottom:0;text-align:center;padding:16px;border-left:4px solid var(--st-pending);">
+      <div class="kpi-num" style="color:var(--st-pending);">{{ agents_kpis.unpaired_count }}</div>
+      <div class="kpi-label">Unpaired</div>
+    </div>
+  </div>
+
+  <div class="card" style="padding:10px 14px;margin-bottom:12px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+      <div style="font-weight:600;font-size:13px;color:var(--text);">Agents Filter</div>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <span class="muted-text">Status Filter:</span>
+        <a href="/admin/agents?lang={{ lang_param }}&status=ALL" class="btn btn-secondary btn-sm {% if not filter_status or filter_status == 'ALL' %}btn-primary{% endif %}" style="height:26px;padding:0 8px;">All</a>
+        <a href="/admin/agents?lang={{ lang_param }}&status=ACTIVE" class="btn btn-secondary btn-sm {% if filter_status == 'ACTIVE' %}btn-primary{% endif %}" style="height:26px;padding:0 8px;">Active</a>
+        <a href="/admin/agents?lang={{ lang_param }}&status=INACTIVE" class="btn btn-secondary btn-sm {% if filter_status == 'INACTIVE' %}btn-primary{% endif %}" style="height:26px;padding:0 8px;">Inactive</a>
+        <a href="/admin/agents?lang={{ lang_param }}&status=PAIRED" class="btn btn-secondary btn-sm {% if filter_status == 'PAIRED' %}btn-primary{% endif %}" style="height:26px;padding:0 8px;">Paired</a>
+        <a href="/admin/agents?lang={{ lang_param }}&status=UNPAIRED" class="btn btn-secondary btn-sm {% if filter_status == 'UNPAIRED' %}btn-primary{% endif %}" style="height:26px;padding:0 8px;">Unpaired</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="table-container">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Sl No</th>
+          <th>Access Code</th>
+          <th style="white-space:nowrap;">Name</th>
+          <th style="white-space:nowrap;">Language</th>
+          <th style="white-space:nowrap;">Phone</th>
+          <th style="white-space:nowrap;">Email</th>
+          <th style="white-space:nowrap;">Gender</th>
+          <th style="white-space:nowrap;">Availability</th>
+          <th style="white-space:nowrap;">Paired With</th>
+          <th style="white-space:nowrap;">Assigned</th>
+          <th style="white-space:nowrap;">Completed</th>
+          <th style="white-space:nowrap;">Pending</th>
+          <th style="white-space:nowrap;">Recorded &amp; Limit</th>
+          <th style="white-space:nowrap;">Accepted</th>
+          <th style="white-space:nowrap;">Status</th>
+          <th style="text-align:right;white-space:nowrap;">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for a in agents %}
+        <tr>
+          <td>{{ loop.index }}</td>
+          <td style="white-space:nowrap;">
+            <div style="display:inline-flex;align-items:center;gap:6px;">
+              <span style="font-family:monospace;font-weight:700;letter-spacing:0.5px;">{{ a.code }}</span>
+              <button type="button" class="copy-icon-btn" onclick="copyToClipboard('{{ a.code }}', this)" title="Copy Access Code" style="background:none;border:none;cursor:pointer;padding:2px 4px;color:var(--muted);display:inline-flex;align-items:center;border-radius:4px;transition:color 0.15s, background 0.15s;">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                </svg>
+              </button>
+            </div>
+          </td>
+          <td style="font-weight:700;white-space:nowrap;">
+            <a href="/admin?lang_id={{ a.language_id }}&agent_id={{ a.id }}" class="hover-trigger" style="color:#16292A;font-weight:700;text-decoration:none;white-space:nowrap;" title="View complete details for {{ a.name }}" data-hover-agent='{"name":{{ a.name|tojson }},"role":"Agent","phone":{{ (a.phone or "-")|tojson }},"email":{{ (a.email or "-")|tojson }},"gender":{{ (a.gender or "-")|tojson }},"language":{{ a.lang_name|tojson }},"availability":{{ a.availability|tojson }},"partner":{{ (a.partner_name or "Unpaired")|tojson }},"status":{{ ("Active" if a.active else "Inactive")|tojson }},"recorded_h":{{ a.recorded_h|tojson }}}'>{{ a.name }}</a>
+          </td>
+          <td style="white-space:nowrap;">{{ a.lang_name }}</td>
+          <td style="white-space:nowrap;">{{ a.phone }}</td>
+          <td style="white-space:nowrap;">{{ a.email or '-' }}</td>
+          <td style="white-space:nowrap;">{{ a.gender or '-' }}</td>
+          <td style="white-space:nowrap;">{{ a.availability or 'All day' }}</td>
+          <td style="white-space:nowrap;">
+            {% if a.pair_count %}
+              <span class="hover-trigger" tabindex="0" data-hover-partners='{{ a.partner_cards|tojson }}' style="cursor:help;display:inline-flex;align-items:center;white-space:nowrap;">
+                <span class="status-badge" style="border:1px solid #0F766E;color:#0F766E;font-weight:700;padding:1px 8px;">{{ a.pair_count }} {{ 'pair' if a.pair_count == 1 else 'pairs' }}</span>
+              </span>
+            {% else %}
+              <span class="muted-text">Unpaired</span>
+            {% endif %}
+          </td>
+          <td>{{ a.assigned_count }}</td>
+          <td>{{ a.completed_count }}</td>
+          <td>{{ a.pending_count }}</td>
+          <td style="white-space:nowrap;">
+            <div class="hours-side-by-side">
+              <span class="hours-recorded">{{ a.recorded_h|hm }} / 15 h</span>
+            </div>
+            <div class="progress-bar-wrap" style="width:90px;">
+              <div class="progress-bar-fill {% if a.recorded_h >= 15.0 %}red{% elif a.recorded_h >= 12.0 %}amber{% else %}teal{% endif %}" style="width:{{ [100, (a.recorded_h / 15.0 * 100)|round]|min }}%;"></div>
+            </div>
+            {% if a.recorded_h >= 15.0 %}
+              <span class="status-badge status-limit" style="font-size:10px;">Limit reached</span>
+            {% endif %}
+          </td>
+          <td style="white-space:nowrap;"><span class="hours-accepted">{{ a.accepted_h|hm }}</span></td>
+          <td style="white-space:nowrap;">
+            {% if not a.active %}
+              <span class="status-badge" style="border:1px solid #9CA3AF;color:#6B7280;">Inactive</span>
+            {% elif (a.recorded_h or 0) >= 15.0 %}
+              <span class="status-badge status-limit">Limit reached</span>
+            {% else %}
+              <span class="status-badge status-accepted">Active</span>
+            {% endif %}
+          </td>
+          <td style="text-align:right;white-space:nowrap;position:relative;padding-right:14px;">
+            <button type="button" class="action-dots-btn"
+                    data-id="{{ a.id }}"
+                    data-name="{{ a.name }}"
+                    data-phone="{{ a.phone or '' }}"
+                    data-email="{{ a.email or '' }}"
+                    data-gender="{{ a.gender or 'M' }}"
+                    data-avail="{{ a.availability or 'All day' }}"
+                    data-active="{{ 1 if a.active else 0 }}"
+                    onclick='toggleAgentActionMenu(this, event, {{ a.id }}, {{ a.name|tojson }}, {{ (a.phone or "")|tojson }}, {{ (a.email or "")|tojson }}, {{ (a.gender or "")|tojson }}, {{ (a.availability or "")|tojson }}, {{ 1 if a.active else 0 }})'
+                    title="More actions" aria-label="Actions">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                <circle cx="12" cy="5" r="2"></circle>
+                <circle cx="12" cy="12" r="2"></circle>
+                <circle cx="12" cy="19" r="2"></circle>
+              </svg>
+            </button>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="16" class="muted-text" style="text-align:center;">No agents found.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+
+{% elif active_tab == 'scripts' %}
+  <!-- ========================================================
+       AD3 SCRIPTS
+       KPI row: Total, Available, Assigned, Completed. Button: Sync Scripts.
+       Table of scripts by taxonomy and status. Click a script to view details below the table.
+       ======================================================== -->
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:8px;flex-wrap:wrap;">
+    <div>
+      <h2 style="margin:0;">Scripts</h2>
+      <span class="muted-text">Inventory and lifecycle tracking</span>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+      <button type="button" class="btn btn-primary btn-sm" onclick="sfUpload.pick('folder')" title="Choose a folder on your computer; every .txt/.md script inside is imported">⬆ Upload Folder</button>
+      <button type="button" class="btn btn-secondary btn-sm" onclick="sfUpload.pick('files')" title="Choose individual script files">⬆ Upload Files</button>
+      <input type="file" id="sfFolderPick" webkitdirectory directory multiple hidden>
+      <input type="file" id="sfFilesPick" accept=".txt,.md" multiple hidden>
+      <form method="post" action="/admin/scripts/sync" style="margin:0;">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <button type="submit" class="btn btn-primary btn-sm" title="Sync all scripts from scripts_library folder">Sync Scripts</button>
+      </form>
+      <form id="sfDriveForm" onsubmit="return sfUpload.drive(event)" style="margin:0;display:flex;gap:4px;align-items:center;">
+        <input type="url" id="sfDriveUrl" placeholder="Paste Google Drive folder / file link" autocomplete="off" required
+               style="height:32px;font-size:12px;padding:0 8px;width:250px;border:1px solid #DCEDEC;border-radius:4px;" title="Paste a Drive folder or file link. Folders are imported recursively. The link must be shared as 'Anyone with the link can view' unless Drive credentials are configured.">
+        <button type="submit" class="btn btn-secondary btn-sm" style="height:32px;" title="Import every .txt/.md script found at this Drive link">Import from Drive</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- KPI Summary Cards (Image 5 style: border-left 4px accent) -->
+  <div class="kpi-grid" style="grid-template-columns:repeat(auto-fit, minmax(200px, 1fr));gap:12px;margin-bottom:16px;">
+    <div class="card kpi-live" data-kpi="sc_total" style="margin-bottom:0;text-align:center;padding:16px;border-left:4px solid var(--primary);">
+      <div class="kpi-num">{{ scripts_kpi.total }}</div>
+      <div class="kpi-label">Total Scripts</div>
+    </div>
+    <div class="card kpi-live" data-kpi="sc_available" style="margin-bottom:0;text-align:center;padding:16px;border-left:4px solid var(--st-accepted);">
+      <div class="kpi-num" style="color:var(--st-accepted);">{{ scripts_kpi.available }}</div>
+      <div class="kpi-label">Available Scripts</div>
+    </div>
+    <div class="card kpi-live" data-kpi="sc_assigned" style="margin-bottom:0;text-align:center;padding:16px;border-left:4px solid #3B82F6;">
+      <div class="kpi-num" style="color:#3B82F6;">{{ scripts_kpi.assigned }}</div>
+      <div class="kpi-label">Assigned Scripts</div>
+    </div>
+    <div class="card kpi-live" data-kpi="sc_completed" style="margin-bottom:0;text-align:center;padding:16px;border-left:4px solid var(--st-pending);">
+      <div class="kpi-num" style="color:var(--st-pending);">{{ scripts_kpi.completed }}</div>
+      <div class="kpi-label">Completed Scripts</div>
+    </div>
+  </div>
+
+  <div style="display:flex;gap:0;border:1px solid var(--border);border-radius:7px;overflow:hidden;width:fit-content;margin-bottom:10px;">
+    <button type="button" id="sfViewFolders" class="btn btn-sm btn-primary" style="border:0;border-radius:0;font-weight:600;" onclick="sfSetScriptView('folder')">📁 Folders</button>
+    <button type="button" id="sfViewList" class="btn btn-sm btn-secondary" style="border:0;border-radius:0;font-weight:600;" onclick="sfSetScriptView('list')">☰ List</button>
+  </div>
+
+  <div class="card" id="scriptFilterCard" style="padding:10px 14px;margin-bottom:12px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+      <div style="font-weight:600;font-size:13px;color:var(--text);">Scripts Filter</div>
+      <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+        <div style="display:flex;gap:6px;align-items:center;">
+          <span class="muted-text" style="font-size:12px;">Status:</span>
+          <a href="/admin/scripts?lang={{ lang_param }}&status=ALL{% if taxonomy_filter %}&taxonomy={{ taxonomy_filter }}{% endif %}" class="btn btn-secondary btn-sm {% if not filter_status or filter_status == 'ALL' %}btn-primary{% endif %}" style="height:26px;padding:0 8px;">All</a>
+          <a href="/admin/scripts?lang={{ lang_param }}&status=AVAILABLE{% if taxonomy_filter %}&taxonomy={{ taxonomy_filter }}{% endif %}" class="btn btn-secondary btn-sm {% if filter_status == 'AVAILABLE' %}btn-primary{% endif %}" style="height:26px;padding:0 8px;">Available</a>
+          <a href="/admin/scripts?lang={{ lang_param }}&status=ASSIGNED{% if taxonomy_filter %}&taxonomy={{ taxonomy_filter }}{% endif %}" class="btn btn-secondary btn-sm {% if filter_status == 'ASSIGNED' %}btn-primary{% endif %}" style="height:26px;padding:0 8px;">Assigned</a>
+          <a href="/admin/scripts?lang={{ lang_param }}&status=SUBMITTED{% if taxonomy_filter %}&taxonomy={{ taxonomy_filter }}{% endif %}" class="btn btn-secondary btn-sm {% if filter_status == 'SUBMITTED' %}btn-primary{% endif %}" style="height:26px;padding:0 8px;">Submitted</a>
+          <a href="/admin/scripts?lang={{ lang_param }}&status=ACCEPTED{% if taxonomy_filter %}&taxonomy={{ taxonomy_filter }}{% endif %}" class="btn btn-secondary btn-sm {% if filter_status == 'ACCEPTED' or filter_status == 'APPROVED' %}btn-primary{% endif %}" style="height:26px;padding:0 8px;">Accepted</a>
+        </div>
+
+        <div style="display:flex;gap:6px;align-items:center;">
+          <span class="muted-text" style="font-size:12px;">Taxonomy:</span>
+          <select onchange="window.location.href='/admin/scripts?lang={{ lang_param }}&status={{ filter_status or 'ALL' }}&taxonomy=' + encodeURIComponent(this.value)" class="form-select" style="height:28px;padding:2px 8px;font-size:12px;border:1px solid #DCEDEC;border-radius:4px;background:#FFFFFF;color:var(--text);font-weight:600;">
+            <option value="ALL" {% if not taxonomy_filter or taxonomy_filter == 'ALL' %}selected{% endif %}>All Taxonomies</option>
+            {% for t in distinct_taxonomies %}
+              <option value="{{ t.subdomain }}" {% if taxonomy_filter == t.subdomain %}selected{% endif %}>{{ t.domain }} → {{ t.subdomain }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Folder browser (client-side, built from /admin/scripts/tree) -->
+  <div id="scriptFolderView" style="display:none;">
+    <div id="sfBreadcrumb" class="row" style="gap:6px;align-items:center;font-size:13px;font-weight:600;background:var(--card,#fff);border:1px solid var(--border);border-radius:8px;padding:8px 12px;margin-bottom:12px;flex-wrap:wrap;"></div>
+    <div id="sfFolderBody"></div>
+  </div>
+
+  <div class="table-container" id="scriptListView">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th style="width:65px;">Sl. No</th>
+          <th>Script Code</th>
+          <th>Language</th>
+          <th>Domain</th>
+          <th>Sub-domain</th>
+          <th>Status</th>
+          <th>Assigned Pair</th>
+          <th>Time</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in scripts %}
+        <tr style="cursor:pointer;" onclick="openScriptByCode('{{ s.code }}')">
+          <td>{{ loop.index }}</td>
+          <td style="font-weight:700;">
+            <a href="javascript:void(0)" onclick="openScriptByCode('{{ s.code }}')" 
+               class="hover-trigger" 
+               data-hover-script='{"code":{{ s.code|tojson }},"domain":{{ s.domain|tojson }},"subdomain":{{ s.subdomain|tojson }},"specialisation":{{ (s.specialisation or "-")|tojson }},"status":{{ s.status|tojson }},"words":{{ (s.words or 0)|tojson }},"pair":{{ (s.pair_label or "-")|tojson }}}'
+               style="color:var(--primary);text-decoration:none;">{{ s.code }} ↗</a>
+          </td>
+          <td>{{ s.lang_name }}</td>
+          <td>{{ s.domain }}</td>
+          <td>{{ s.subdomain }}</td>
+          <td>
+            {% if s.status == 'ACCEPTED' or s.status == 'APPROVED' %}
+              <span class="status-badge status-accepted">Accepted</span>
+            {% elif s.status == 'SUBMITTED' or s.status == 'COMPLETED' %}
+              <span class="status-badge status-submitted">Submitted</span>
+            {% elif s.status == 'ASSIGNED' or s.status == 'IN_SESSION' %}
+              <span class="status-badge status-assigned">Assigned</span>
+            {% elif s.status == 'REJECTED' %}
+              <span class="status-badge status-rejected">Rejected</span>
+            {% else %}
+              <span class="status-badge status-available">Available</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if s.uid_a and s.uid_b %}
+              <span style="display:none;">{{ s.name_a }} &amp; {{ s.name_b }}</span>
+              <a href="/admin?lang_id={{ s.language_id }}&agent_id={{ s.uid_a }}" onclick="event.stopPropagation();" class="hover-trigger" style="color:#16292A;text-decoration:none;font-weight:700;" title="View complete details for {{ s.name_a }}" data-hover-pair='{"name_a":{{ s.name_a|tojson }},"name_b":{{ s.name_b|tojson }},"phone_a":{{ (s.pair_phone_a or "-")|tojson }},"phone_b":{{ (s.pair_phone_b or "-")|tojson }},"language":{{ s.lang_name|tojson }},"availability":{{ (s.pair_avail or "All day")|tojson }},"recorded_h":{{ (s.pair_rec_h or 0.0)|tojson }},"status":{{ s.status|tojson }}}'>{{ s.name_a }}</a>
+              <span class="muted-text">&amp;</span>
+              <a href="/admin?lang_id={{ s.language_id }}&agent_id={{ s.uid_b }}" onclick="event.stopPropagation();" class="hover-trigger" style="color:#16292A;text-decoration:none;font-weight:700;" title="View complete details for {{ s.name_b }}" data-hover-pair='{"name_a":{{ s.name_a|tojson }},"name_b":{{ s.name_b|tojson }},"phone_a":{{ (s.pair_phone_a or "-")|tojson }},"phone_b":{{ (s.pair_phone_b or "-")|tojson }},"language":{{ s.lang_name|tojson }},"availability":{{ (s.pair_avail or "All day")|tojson }},"recorded_h":{{ (s.pair_rec_h or 0.0)|tojson }},"status":{{ s.status|tojson }}}'>{{ s.name_b }}</a>
+            {% elif s.pair_label and s.pair_label != '-' %}
+              <span class="hover-trigger" data-hover-pair='{"name_a":{{ (s.pair_label.split(" & ")[0] if " & " in s.pair_label else s.pair_label)|tojson }},"name_b":{{ (s.pair_label.split(" & ")[1] if " & " in s.pair_label else "-")|tojson }},"phone_a":{{ (s.pair_phone_a or "-")|tojson }},"phone_b":{{ (s.pair_phone_b or "-")|tojson }},"language":{{ s.lang_name|tojson }},"availability":{{ (s.pair_avail or "All day")|tojson }},"recorded_h":{{ (s.pair_rec_h or 0.0)|tojson }},"status":{{ s.status|tojson }}}'>{{ s.pair_label }}</span>
+            {% else %}
+              <span class="muted-text">-</span>
+            {% endif %}
+          </td>
+          <td style="white-space:nowrap;"><strong style="color:#16292A;">{{ s.time_taken }}</strong></td>
+          <td><button type="button" class="btn btn-secondary btn-sm" style="height:24px;padding:0 6px;" onclick="event.stopPropagation(); openScriptByCode('{{ s.code }}')">View</button></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="9" class="muted-text" style="text-align:center;">No scripts available. Click "Sync Scripts" to import.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <script>
+  (function(){
+    var LANG_PARAM = {{ (lang_param or 'all')|tojson }};
+    var ITEMS = null, path = [];
+    function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
+    function statusColor(s){ return {Available:'#0F766E',Assigned:'#B45309',Completed:'#2563EB',Rejected:'#DC2626'}[s]||'#64748B'; }
+    function keyAt(it,d){ return [it.lang,it.domain,it.sub,it.spec][d]; }
+    function matchesPath(it){ for(var i=0;i<path.length;i++){ if(keyAt(it,i)!==path[i]) return false; } return true; }
+
+    window.sfSetScriptView = function(mode){
+      try{ localStorage.setItem('sfScriptView', mode); }catch(e){}
+      var folders = (mode==='folder');
+      var fv=document.getElementById('scriptFolderView'), lv=document.getElementById('scriptListView'), fc=document.getElementById('scriptFilterCard');
+      if(!fv||!lv) return;
+      fv.style.display = folders?'block':'none';
+      lv.style.display = folders?'none':'';
+      if(fc) fc.style.display = folders?'none':'';
+      document.getElementById('sfViewFolders').className = 'btn btn-sm ' + (folders?'btn-primary':'btn-secondary');
+      document.getElementById('sfViewList').className = 'btn btn-sm ' + (folders?'btn-secondary':'btn-primary');
+      if(folders){ if(ITEMS===null) loadTree(); else render(); }
+    };
+    function loadTree(){
+      document.getElementById('sfFolderBody').innerHTML = '<div class="muted-text" style="padding:20px;">Loading folders…</div>';
+      fetch('/admin/scripts/tree?lang=' + encodeURIComponent(LANG_PARAM), {credentials:'same-origin'})
+        .then(function(r){ return r.json(); })
+        .then(function(d){ ITEMS = d.items||[]; var langs=Array.from(new Set(ITEMS.map(function(i){return i.lang;}))); path = (langs.length===1)?[langs[0]]:[]; render(); })
+        .catch(function(){ document.getElementById('sfFolderBody').innerHTML = '<div style="padding:20px;color:#DC2626;">Could not load folders.</div>'; });
+    }
+    function scriptTable(rows){
+      if(!rows.length) return '<div class="muted-text" style="padding:20px;">No scripts here.</div>';
+      var h='<div class="table-container"><table class="data-table"><thead><tr><th style="width:55px;">#</th><th>Script Code</th><th>Language</th><th>Topic</th><th>Status</th></tr></thead><tbody>';
+      h += rows.map(function(r,i){ var tax=[r.domain,r.sub,r.spec].filter(Boolean).join(' / ');
+        return '<tr style="cursor:pointer;" onclick="openScriptByCode('+JSON.stringify(r.code)+')"><td>'+(i+1)+'</td>'
+          +'<td style="font-weight:700;color:var(--primary,#0F766E);">'+esc(r.code)+' ↗</td><td>'+esc(r.lang)+'</td><td>'+esc(tax)+'</td>'
+          +'<td><span style="color:'+statusColor(r.status)+';font-weight:600;">'+esc(r.status)+'</span></td></tr>';
+      }).join('');
+      return h+'</tbody></table></div>';
+    }
+    function render(){
+      if(!ITEMS) return;
+      var bc=document.getElementById('sfBreadcrumb');
+      var crumbs=['📁 All scripts'].concat(path);
+      bc.innerHTML = crumbs.map(function(name,i){
+        if(i===crumbs.length-1) return '<span style="color:var(--primary,#0F766E);">'+esc(name)+'</span>';
+        return '<a href="javascript:void(0)" onclick="sfGoTo('+i+')" style="color:inherit;text-decoration:none;">'+esc(name)+'</a> <span class="muted-text">→</span>';
+      }).join(' ');
+      var sub=ITEMS.filter(matchesPath), depth=path.length, body=document.getElementById('sfFolderBody');
+      if(depth>=4){ body.innerHTML=scriptTable(sub); return; }
+      var groups={}, loose=[];
+      sub.forEach(function(it){ var k=keyAt(it,depth); if(k){ (groups[k]=groups[k]||[]).push(it); } else { loose.push(it); } });
+      var keys=Object.keys(groups).sort();
+      var html='';
+      if(keys.length){
+        html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px;">' + keys.map(function(k){
+          var rows=groups[k], avail=rows.filter(function(r){return r.status==='Available';}).length, done=rows.filter(function(r){return r.status==='Completed';}).length;
+          return '<a href="javascript:void(0)" onclick="sfInto('+JSON.stringify(k)+')" class="card" style="display:block;text-decoration:none;color:inherit;padding:14px;border-top:4px solid var(--primary,#0F766E);border-radius:10px;">'
+            +'<div style="font-size:1.4rem;">📁</div><div style="font-weight:700;margin:4px 0;">'+esc(k)+'</div>'
+            +'<div class="muted-text" style="font-size:12px;">'+rows.length+' scripts · '+avail+' available · '+done+' done</div></a>';
+        }).join('') + '</div>';
+      }
+      if(loose.length){ html += (keys.length?'<div class="muted-text" style="margin-top:14px;font-weight:600;font-size:12px;">Scripts here</div>':'') + scriptTable(loose); }
+      if(!keys.length && !loose.length){ html='<div class="muted-text" style="padding:20px;">No scripts here.</div>'; }
+      body.innerHTML=html;
+    }
+    window.sfInto = function(k){ path.push(k); render(); };
+    window.sfGoTo = function(i){ path = path.slice(0, i); render(); };
+    try{ sfSetScriptView(localStorage.getItem('sfScriptView')||'folder'); }catch(e){ sfSetScriptView('folder'); }
+  })();
+  </script>
+
+  <script>
+  window.SCRIPTS_CACHE = window.SCRIPTS_CACHE || {};
+  {% for s in scripts %}
+  window.SCRIPTS_CACHE[{{ s.code|tojson }}] = {
+    code: {{ s.code|tojson }},
+    taxonomy: {{ s.taxonomy|tojson }},
+    pair_label: {{ (s.pair_label or '-')|tojson }},
+    status: {{ s.status|tojson }},
+    dialogue: {{ (s.dialogue or '')|tojson }}
+  };
+  {% endfor %}
+  </script>
+
+
+
+
+{% elif active_tab in ('pairs', 'assignment') %}
+  <!-- ========================================================
+       AD4 PAIRS + AD5 SCRIPT ASSIGNMENT (one combined tab)
+       Buttons: Auto Pair, Pair Manually, Bulk Upload Pairs.
+       Table: Agent A | Agent B | Availability | Assigned | Completed | Pending | Recorded x / 7.5 h | Accepted | Status (Active / Limit reached) | Delete (reason).
+       ======================================================== -->
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:8px;flex-wrap:wrap;">
+    <div>
+      <h2 style="margin:0;">Pairs Management</h2>
+      <span class="muted-text">{{ pairs|length }} pairs total</span>
+    </div>
+    <div style="display:flex;gap:8px;">
+      <form method="post" action="/admin/pairs/auto" style="margin:0;">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <button type="submit" class="btn btn-primary btn-sm">Auto Pair</button>
+      </form>
+      <button type="button" class="btn btn-secondary btn-sm" onclick="openPairManualModal()">Pair Manually</button>
+      <button type="button" class="btn btn-secondary btn-sm" onclick="openBulkPairModal()">Bulk Upload Pairs</button>
+    </div>
+  </div>
+
+  <!-- TOP KPIs (left) beside the Assign card (right), spanning both KPI rows. -->
+  <div style="display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:14px;align-items:start;margin-bottom:16px;" class="assign-split">
+    <div>
+  <div class="kpi-section-title">Agents &amp; Pairs</div>
+  <div class="kpi-grid" style="grid-template-columns:repeat(auto-fit, minmax(170px, 1fr));gap:12px;margin-bottom:12px;">
+    <div class="card kpi-live" data-kpi="ag_active" style="margin-bottom:0;text-align:center;padding:16px;border-left:4px solid #00A896;">
+      <div class="kpi-num" style="color:#00A896;">{{ pairs_kpis.total_agents }}</div>
+      <div class="kpi-label">Total Agents</div>
+    </div>
+    <div class="card kpi-live" data-kpi="ag_paired" style="margin-bottom:0;text-align:center;padding:16px;border-left:4px solid #3B82F6;">
+      <div class="kpi-num" style="color:#3B82F6;">{{ pairs_kpis.paired_count }}</div>
+      <div class="kpi-label">Paired Agents</div>
+    </div>
+    <div class="card kpi-live" data-kpi="ag_unpaired" style="margin-bottom:0;text-align:center;padding:16px;border-left:4px solid var(--st-pending);">
+      <div class="kpi-num" style="color:var(--st-pending);">{{ pairs_kpis.unpaired_count }}</div>
+      <div class="kpi-label">Unpaired Agents</div>
+    </div>
+    <div class="card kpi-live" data-kpi="pr_total" style="margin-bottom:0;text-align:center;padding:16px;border-left:4px solid var(--primary);">
+      <div class="kpi-num" style="color:var(--primary);">{{ pairs_kpis.total_pairs }}</div>
+      <div class="kpi-label">Total Pairs</div>
+    </div>
+    <div class="card kpi-live" data-kpi="pr_active" style="margin-bottom:0;text-align:center;padding:16px;border-left:4px solid var(--st-accepted);">
+      <div class="kpi-num" style="color:var(--st-accepted);">{{ pairs_kpis.active_pairs }}</div>
+      <div class="kpi-label">Active Pairs (&lt; 7.5h)</div>
+    </div>
+    <div class="card kpi-live" data-kpi="pr_limit" style="margin-bottom:0;text-align:center;padding:16px;border-left:4px solid var(--st-limit);">
+      <div class="kpi-num" style="color:var(--st-limit);">{{ pairs_kpis.limit_reached }}</div>
+      <div class="kpi-label">Limit Reached (&gt;= 7.5h)</div>
+    </div>
+  </div>
+  <div class="kpi-section-title" style="margin-top:14px;">Scripts</div>
+  <div class="kpi-grid" style="grid-template-columns:repeat(auto-fit, minmax(150px, 1fr));gap:12px;margin-bottom:0;">
+    <div class="card kpi-live" data-kpi="sc_total" style="margin-bottom:0;text-align:center;padding:16px;border-left:4px solid var(--primary);">
+      <div class="kpi-num" style="color:var(--primary);">{{ assignment_kpis.total_scripts }}</div>
+      <div class="kpi-label">Total Scripts</div>
+    </div>
+    <div class="card kpi-live" data-kpi="sc_available" style="margin-bottom:0;text-align:center;padding:16px;border-left:4px solid #10B981;">
+      <div class="kpi-num" style="color:#10B981;">{{ assignment_kpis.available_scripts }}</div>
+      <div class="kpi-label">Available to Assign</div>
+    </div>
+    <div class="card kpi-live" data-kpi="sc_assigned" style="margin-bottom:0;text-align:center;padding:16px;border-left:4px solid #3B82F6;">
+      <div class="kpi-num" style="color:#3B82F6;">{{ assignment_kpis.assigned_scripts }}</div>
+      <div class="kpi-label">Assigned Scripts</div>
+    </div>
+    <div class="card kpi-live" data-kpi="sc_pending" style="margin-bottom:0;text-align:center;padding:16px;border-left:4px solid var(--st-pending);">
+      <div class="kpi-num" style="color:var(--st-pending);">{{ assignment_kpis.pending_scripts }}</div>
+      <div class="kpi-label">Pending Scripts</div>
+    </div>
+    <div class="card kpi-live" data-kpi="sc_completed" style="margin-bottom:0;text-align:center;padding:16px;border-left:4px solid var(--st-accepted);">
+      <div class="kpi-num" style="color:var(--st-accepted);">{{ assignment_kpis.completed_scripts }}</div>
+      <div class="kpi-label">Completed Scripts</div>
+    </div>
+    <div class="card kpi-live" data-kpi="sc_accepted" style="margin-bottom:0;text-align:center;padding:16px;border-left:4px solid #0F766E;">
+      <div class="kpi-num" style="color:#0F766E;">{{ assignment_kpis.accepted_scripts }}</div>
+      <div class="kpi-label">Accepted Scripts</div>
+    </div>
+  </div>
+    </div>
+    <div class="card" id="assignAllCard" style="padding:14px;margin:0;align-self:start;">
+      <form method="post" action="/admin/assign/execute" style="margin:0;display:flex;flex-direction:column;gap:10px;">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <input type="hidden" name="language_id" value="{{ lang_param }}">
+        <div style="font-weight:700;font-size:14px;color:var(--text);">Assign to all active pairs</div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <label class="muted-text" for="assignAllCount" style="font-size:12px;">Scripts per pair</label>
+          <input type="number" id="assignAllCount" name="count" class="form-input" value="2" min="1" max="500" required style="width:84px;height:30px;padding:2px 8px;text-align:center;" oninput="updateAssignPreview()">
+        </div>
+        <div id="assignPreview" style="font-size:12px;line-height:1.4;border:1px solid var(--border);border-radius:6px;padding:6px 8px;background:#F8FAFC;"
+             data-stock="{{ assignable_scripts_count or 0 }}" data-pairs="{{ active_eligible_pairs_count or 0 }}"></div>
+        <button type="submit" class="btn btn-primary btn-sm" {% if not assignable_scripts_count or not active_eligible_pairs_count %}disabled title="Needs available scripts and at least one active pair"{% endif %}>Assign to all</button>
+      </form>
+    </div>
+  </div>
+  <style>@media (max-width: 1100px){ .assign-split{ grid-template-columns:1fr !important; } }</style>
+  <script>
+  function updateAssignPreview(){
+    var box = document.getElementById('assignPreview'); if(!box) return;
+    var stock = parseInt(box.dataset.stock||'0',10), pairs = parseInt(box.dataset.pairs||'0',10);
+    var n = Math.max(1, parseInt(document.getElementById('assignAllCount').value||'1',10) || 1);
+    if(!pairs){ box.innerHTML = '<span style="color:#B45309;">No active pairs.</span>'; return; }
+    var total = Math.min(n*pairs, stock), base = Math.floor(total/pairs), extra = total % pairs;
+    var each = (total===0) ? '0' : (extra>0 ? base+'–'+(base+1) : ''+base);
+    box.innerHTML =
+      '<div style="display:flex;justify-content:space-between;"><span>Pairs</span><strong>'+pairs+'</strong></div>' +
+      '<div style="display:flex;justify-content:space-between;"><span>Available scripts</span><strong>'+stock+'</strong></div>' +
+      '<div style="display:flex;justify-content:space-between;color:#0F766E;"><span>Each pair gets</span><strong>'+each+'</strong></div>';
+  }
+  document.addEventListener('DOMContentLoaded', updateAssignPreview);
+  </script>
+
+  <div class="card" style="padding:10px 14px;margin-bottom:12px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+      <div style="font-weight:600;font-size:13px;color:var(--text);">Pairs Filter</div>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <span class="muted-text">Status Filter:</span>
+        <a href="/admin/pairs?lang={{ lang_param }}&status=ALL" class="btn btn-secondary btn-sm {% if not filter_status or filter_status == 'ALL' %}btn-primary{% endif %}" style="height:26px;padding:0 8px;">All</a>
+        <a href="/admin/pairs?lang={{ lang_param }}&status=ACTIVE" class="btn btn-secondary btn-sm {% if filter_status == 'ACTIVE' %}btn-primary{% endif %}" style="height:26px;padding:0 8px;">Active (&lt; 7.5h)</a>
+        <a href="/admin/pairs?lang={{ lang_param }}&status=LIMIT_REACHED" class="btn btn-secondary btn-sm {% if filter_status == 'LIMIT_REACHED' %}btn-primary{% endif %}" style="height:26px;padding:0 8px;">Limit Reached (&gt;= 7.5h)</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="table-container">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th style="width:60px;">Sl. No</th>
+          <th>Agent A</th>
+          <th>Agent B</th>
+          <th>Availability</th>
+          <th>Assigned</th>
+          <th>Completed</th>
+          <th>Pending</th>
+          <th>Recorded &amp; Limit</th>
+          <th>Accepted</th>
+          <th>Status</th>
+          <th style="text-align:center;">Scripts</th>
+          <th style="text-align:center;white-space:nowrap;">Assign</th>
+          <th style="text-align:right;">Delete</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in pairs %}
+        <tr>
+          <td class="muted-text">{{ loop.index }}</td>
+          <td style="vertical-align:top;">
+            <div style="font-weight:700;color:var(--text);">
+              <a href="/admin?lang_id={{ p.language_id }}&agent_id={{ p.a }}" class="hover-trigger" style="color:#16292A;font-weight:700;text-decoration:none;" title="View complete details for {{ p.agent_a_name }}" data-hover-agent='{"name":{{ p.agent_a_name|tojson }},"role":"Agent","phone":{{ (p.agent_a_phone or "-")|tojson }},"email":{{ (p.agent_a_email or "-")|tojson }},"gender":{{ (p.agent_a_gender or "-")|tojson }},"language":{{ p.lang_name|tojson }},"availability":{{ (p.agent_a_avail or p.availability)|tojson }},"partner":{{ p.agent_b_name|tojson }},"status":"Paired","recorded_h":{{ p.rec_a_h|tojson }}}'>{{ p.agent_a_name }}</a>
+              <span class="muted-text">({{ p.agent_a_gender }})</span>
+            </div>
+            <div style="margin-top:3px;font-size:11px;color:var(--muted);white-space:nowrap;">
+              Recorded: <strong>{{ p.rec_a_h|hm }} / 15 h</strong>
+            </div>
+            <div class="progress-bar-wrap" style="width:105px;margin-top:2px;">
+              <div class="progress-bar-fill {% if p.rec_a_h >= 15.0 %}red{% elif p.rec_a_h >= 12.0 %}amber{% else %}teal{% endif %}" style="width:{{ [100, (p.rec_a_h / 15.0 * 100)|round]|min }}%;"></div>
+            </div>
+            {% if p.rec_a_h >= 15.0 %}
+              <span class="status-badge status-limit" style="font-size:9px;padding:0 3px;margin-top:2px;display:inline-block;">Limit reached</span>
+            {% endif %}
+          </td>
+          <td style="vertical-align:top;">
+            <div style="font-weight:700;color:var(--text);">
+              <a href="/admin?lang_id={{ p.language_id }}&agent_id={{ p.b }}" class="hover-trigger" style="color:#16292A;font-weight:700;text-decoration:none;" title="View complete details for {{ p.agent_b_name }}" data-hover-agent='{"name":{{ p.agent_b_name|tojson }},"role":"Agent","phone":{{ (p.agent_b_phone or "-")|tojson }},"email":{{ (p.agent_b_email or "-")|tojson }},"gender":{{ (p.agent_b_gender or "-")|tojson }},"language":{{ p.lang_name|tojson }},"availability":{{ (p.agent_b_avail or p.availability)|tojson }},"partner":{{ p.agent_a_name|tojson }},"status":"Paired","recorded_h":{{ p.rec_b_h|tojson }}}'>{{ p.agent_b_name }}</a>
+              <span class="muted-text">({{ p.agent_b_gender }})</span>
+            </div>
+            <div style="margin-top:3px;font-size:11px;color:var(--muted);white-space:nowrap;">
+              Recorded: <strong>{{ p.rec_b_h|hm }} / 15 h</strong>
+            </div>
+            <div class="progress-bar-wrap" style="width:105px;margin-top:2px;">
+              <div class="progress-bar-fill {% if p.rec_b_h >= 15.0 %}red{% elif p.rec_b_h >= 12.0 %}amber{% else %}teal{% endif %}" style="width:{{ [100, (p.rec_b_h / 15.0 * 100)|round]|min }}%;"></div>
+            </div>
+            {% if p.rec_b_h >= 15.0 %}
+              <span class="status-badge status-limit" style="font-size:9px;padding:0 3px;margin-top:2px;display:inline-block;">Limit reached</span>
+            {% endif %}
+          </td>
+          <td>{{ p.availability }}</td>
+          <td>{{ p.assigned_count }}</td>
+          <td>{{ p.completed_count }}</td>
+          <td>{{ p.pending_count }}</td>
+          <td>
+            <div class="hours-side-by-side">
+              <span class="hours-recorded">{{ p.recorded_h|hm }} / 7.5 h</span>
+            </div>
+            <div class="progress-bar-wrap" style="width:80px;">
+              <div class="progress-bar-fill {% if p.recorded_h >= 7.5 %}red{% elif p.recorded_h >= 6.0 %}amber{% else %}teal{% endif %}" style="width:{{ [100, (p.recorded_h / 7.5 * 100)|round]|min }}%;"></div>
+            </div>
+          </td>
+          <td><span class="hours-accepted">{{ p.accepted_h|hm }}</span></td>
+          <td>
+            {% if p.recorded_h >= 7.5 %}
+              <span class="status-badge status-limit">Limit reached</span>
+            {% elif p.status == 'ACTIVE' %}
+              <span class="status-badge status-available">Active</span>
+            {% else %}
+              <span class="status-badge status-rejected">{{ p.status }}</span>
+            {% endif %}
+          </td>
+          <td style="text-align:center;">
+            <button type="button" class="btn btn-secondary btn-sm" style="height:26px;padding:0 8px;font-size:12px;" onclick="openPairScriptsModal({{ p.id }})">
+              Scripts ({{ p.assigned_count }})
+            </button>
+          </td>
+          <td style="text-align:center;white-space:nowrap;">
+            {% set pair_full = p.recorded_h >= 7.5 %}
+            <form method="post" action="/admin/assign/pair/{{ p.id }}" class="pair-assign-form" style="display:inline-flex;align-items:center;gap:4px;margin:0;">
+              <input type="hidden" name="csrf" value="{{ csrf }}">
+              <input type="number" name="count" class="form-input" value="1" min="1" max="{{ [assignable_scripts_count, 500]|min if assignable_scripts_count else 1 }}" required
+                     aria-label="Number of scripts to assign to {{ p.agent_a_name }} and {{ p.agent_b_name }}"
+                     style="width:54px;height:28px;padding:2px 4px;text-align:center;font-size:13px;" {% if pair_full or not assignable_scripts_count %}disabled{% endif %}>
+              <button type="submit" class="btn btn-primary btn-sm" style="height:28px;padding:0 10px;font-size:12px;white-space:nowrap;"
+                      {% if pair_full %}disabled title="This pair reached the 7.5 h limit"{% elif not assignable_scripts_count %}disabled title="No available scripts to assign"{% else %}title="Assign this many scripts to this pair"{% endif %}>Assign</button>
+            </form>
+          </td>
+          <td style="text-align:right;">
+            <button type="button" class="btn btn-danger btn-sm" style="height:26px;padding:0 8px;" onclick="openDeleteModal('/admin/pairs/delete/{{ p.id }}', 'Delete Pair {{ p.agent_a_name }} &amp; {{ p.agent_b_name }}', 'Deleting this pair requires a mandatory reason.')">Delete</button>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="13" class="muted-text" style="text-align:center;">No pairs created yet. Click Auto Pair or Pair Manually.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+
+{% elif active_tab == 'assignment' %}
+  <!-- ========================================================
+       AD5 SCRIPTS ASSIGNMENT
+       Top: number of scripts per pair (with "Max assignable: N" helper) and an Assign button.
+       Table: Pair | Assigned | Pending | Completed | Recorded x / 7.5 h | Accepted.
+       ======================================================== -->
+  <div style="margin-bottom:16px;">
+    <h2 style="margin:0 0 4px;">Scripts Assignment</h2>
+    <div class="muted-text">Assign available scripts in batch to active eligible pairs</div>
+  </div>
+
+  <!-- KPI Summary Cards (Image 5 style: border-left 4px accent) -->
+  <div class="kpi-grid" style="grid-template-columns:repeat(auto-fit, minmax(200px, 1fr));gap:12px;margin-bottom:16px;">
+    <div class="card" style="margin-bottom:0;text-align:center;padding:16px;border-left:4px solid var(--primary);">
+      <div class="kpi-num">{{ assignment_kpis.total_scripts }}</div>
+      <div class="kpi-label">Total scripts</div>
+    </div>
+    <div class="card" style="margin-bottom:0;text-align:center;padding:16px;border-left:4px solid #10B981;">
+      <div class="kpi-num" style="color:#10B981;">{{ assignment_kpis.available_scripts }}</div>
+      <div class="kpi-label">Total available scripts to assign</div>
+    </div>
+    <div class="card" style="margin-bottom:0;text-align:center;padding:16px;border-left:4px solid #3B82F6;">
+      <div class="kpi-num" style="color:#3B82F6;">{{ assignment_kpis.assigned_scripts }}</div>
+      <div class="kpi-label">Assigned scripts</div>
+    </div>
+    <div class="card" style="margin-bottom:0;text-align:center;padding:16px;border-left:4px solid var(--st-accepted);">
+      <div class="kpi-num" style="color:var(--st-accepted);">{{ assignment_kpis.completed_scripts }}</div>
+      <div class="kpi-label">Completed scripts</div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:16px;">
+    <form method="post" action="/admin/assign/execute" class="form-row" style="align-items:flex-end;">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <input type="hidden" name="language_id" value="{{ lang_param }}">
+      <div>
+        <label class="form-label" for="assignCount">Number of scripts per pair</label>
+        <input type="number" id="assignCount" name="count" class="form-input" style="width:140px;" value="2" min="1" required>
+      </div>
+      <div>
+        <button type="submit" class="btn btn-primary">Assign Scripts</button>
+      </div>
+      <div class="muted-text" style="font-size:13px;align-self:center;">
+        Available stock: <strong>{{ assignable_scripts_count }}</strong> scripts | Eligible active pairs: <strong>{{ active_eligible_pairs_count }}</strong>
+      </div>
+    </form>
+  </div>
+
+  <div class="card" style="padding:10px 14px;margin-bottom:12px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+      <div style="font-weight:600;font-size:13px;color:var(--text);">Assignment Filter</div>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <span class="muted-text">Status Filter:</span>
+        <a href="/admin/assign?lang={{ lang_param }}&status=ALL" class="btn btn-secondary btn-sm {% if not filter_status or filter_status == 'ALL' %}btn-primary{% endif %}" style="height:26px;padding:0 8px;">All</a>
+        <a href="/admin/assign?lang={{ lang_param }}&status=ACTIVE" class="btn btn-secondary btn-sm {% if filter_status == 'ACTIVE' %}btn-primary{% endif %}" style="height:26px;padding:0 8px;">Active (&lt; 7.5h)</a>
+        <a href="/admin/assign?lang={{ lang_param }}&status=LIMIT_REACHED" class="btn btn-secondary btn-sm {% if filter_status == 'LIMIT_REACHED' %}btn-primary{% endif %}" style="height:26px;padding:0 8px;">Limit Reached (&gt;= 7.5h)</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="table-container">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th style="width:60px;">Sl. No</th>
+          <th>Pair (Partners)</th>
+          <th>Language</th>
+          <th>Assigned</th>
+          <th>Pending</th>
+          <th>Completed</th>
+          <th>Recorded &amp; Limit</th>
+          <th>Accepted</th>
+          <th>Pair Status</th>
+          <th style="text-align:center;">Scripts</th>
+          <th style="text-align:right;">Assign Scripts</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in assign_pairs %}
+        <tr>
+          <td class="muted-text">{{ loop.index }}</td>
+          <td>
+            <div style="font-weight:700;">
+              <a href="/admin?lang_id={{ p.language_id }}&agent_id={{ p.a }}" class="hover-trigger" style="color:#16292A;font-weight:700;text-decoration:none;" title="View complete details for {{ p.agent_a_name }}" data-hover-agent='{"name":{{ p.agent_a_name|tojson }},"role":"Agent","phone":{{ (p.agent_a_phone or "-")|tojson }},"email":{{ (p.agent_a_email or "-")|tojson }},"gender":{{ (p.agent_a_gender or "-")|tojson }},"language":{{ p.lang_name|tojson }},"availability":{{ (p.agent_a_avail or p.availability)|tojson }},"partner":{{ p.agent_b_name|tojson }},"status":"Paired","recorded_h":{{ p.rec_a_h|tojson }}}'>{{ p.agent_a_name }}</a>
+              <span class="muted-text">&amp;</span>
+              <a href="/admin?lang_id={{ p.language_id }}&agent_id={{ p.b }}" class="hover-trigger" style="color:#16292A;font-weight:700;text-decoration:none;" title="View complete details for {{ p.agent_b_name }}" data-hover-agent='{"name":{{ p.agent_b_name|tojson }},"role":"Agent","phone":{{ (p.agent_b_phone or "-")|tojson }},"email":{{ (p.agent_b_email or "-")|tojson }},"gender":{{ (p.agent_b_gender or "-")|tojson }},"language":{{ p.lang_name|tojson }},"availability":{{ (p.agent_b_avail or p.availability)|tojson }},"partner":{{ p.agent_a_name|tojson }},"status":"Paired","recorded_h":{{ p.rec_b_h|tojson }}}'>{{ p.agent_b_name }}</a>
+            </div>
+          </td>
+          <td>{{ p.lang_name }}</td>
+          <td>{{ p.assigned_count }}</td>
+          <td>{{ p.pending_count }}</td>
+          <td>{{ p.completed_count }}</td>
+          <td>
+            <div class="hours-side-by-side">
+              <span class="hours-recorded">{{ p.recorded_h|hm }} / 7.5 h</span>
+            </div>
+            <div class="progress-bar-wrap" style="width:80px;">
+              <div class="progress-bar-fill {% if p.recorded_h >= 7.5 %}red{% elif p.recorded_h >= 6.0 %}amber{% else %}teal{% endif %}" style="width:{{ [100, (p.recorded_h / 7.5 * 100)|round]|min }}%;"></div>
+            </div>
+          </td>
+          <td><span class="hours-accepted">{{ p.accepted_h|hm }}</span></td>
+          <td>
+            {% if p.recorded_h >= 7.5 %}
+              <span class="status-badge status-limit">Limit reached</span>
+            {% else %}
+              <span class="status-badge status-available">Active</span>
+            {% endif %}
+          </td>
+          <td style="text-align:center;">
+            <button type="button" class="btn btn-secondary btn-sm" style="height:26px;padding:0 8px;font-size:12px;display:inline-flex;align-items:center;gap:4px;" onclick="openPairScriptsModal({{ p.id }})">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                <circle cx="12" cy="12" r="3"></circle>
+              </svg>
+              View Scripts ({{ p.assigned_count }})
+            </button>
+          </td>
+          <td style="text-align:right;">
+            <form method="post" action="/admin/assign/pair/{{ p.id }}" style="display:inline-flex;align-items:center;gap:6px;margin:0;">
+              <input type="hidden" name="csrf" value="{{ csrf }}">
+              <input type="number" name="count" class="form-input" value="1" min="1" style="width:58px;height:28px;padding:2px 6px;text-align:center;font-size:13px;" required>
+              <button type="submit" class="btn btn-primary btn-sm" style="height:28px;padding:0 10px;font-size:12px;white-space:nowrap;">Assign</button>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="11" class="muted-text" style="text-align:center;">No pairs found.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+
+{% elif active_tab == 'reports' %}
+  <!-- ========================================================
+       AD6 REPORTS
+       Table: Script code, Pair, Agents, Language, Taxonomy, Time taken, Submission photo (click to enlarge), Days since submitted, Status (Submitted / Accepted / Rejected), Accept / Reject buttons (reason optional), Reviewed by.
+       Filters: language, status. Bulk: select rows -> Accept selected / Reject selected.
+       ======================================================== -->
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:8px;flex-wrap:wrap;">
+    <div>
+      <h2 style="margin:0;">Reports &amp; Verification</h2>
+      <span class="muted-text">Review submissions and approve recording hours</span>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;">
+      <form method="post" action="/admin/sheets/sync" style="margin:0;display:inline-block;">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <button type="submit" class="btn btn-secondary btn-sm" style="display:inline-flex;align-items:center;gap:6px;" title="Live mirror Agents, Pair Assignments, and Scripts to Google Sheets">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/></svg>
+          Sync to Google Sheets
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Export filters: date range + language (drives both Excel and CSV downloads) -->
+  <form method="get" action="/admin/export/excel" id="exportForm" style="display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;background:var(--card,#fff);border:1px solid var(--border,#E2E8F0);border-radius:10px;padding:12px 14px;margin-bottom:16px;">
+    <div style="display:flex;flex-direction:column;gap:3px;">
+      <label class="form-label" style="margin:0;font-size:12px;">From date</label>
+      <input type="date" name="from" value="{{ q.get('from','') }}" class="form-input" style="max-width:170px;">
+    </div>
+    <div style="display:flex;flex-direction:column;gap:3px;">
+      <label class="form-label" style="margin:0;font-size:12px;">To date</label>
+      <input type="date" name="to" value="{{ q.get('to','') }}" class="form-input" style="max-width:170px;">
+    </div>
+    {% if user.role in ('admin','developer') %}
+    <div style="display:flex;flex-direction:column;gap:3px;">
+      <label class="form-label" style="margin:0;font-size:12px;">Language</label>
+      <select name="lang" class="form-select" style="max-width:200px;">
+        <option value="">All languages</option>
+        {% for l in langs %}<option value="{{ l.id }}" {% if q.get('lang') == l.id|string %}selected{% endif %}>{{ l.name }}</option>{% endfor %}
+      </select>
+    </div>
+    {% endif %}
+    <button type="submit" formaction="/admin/export/excel" class="btn btn-primary btn-sm" style="display:inline-flex;align-items:center;gap:6px;">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      Download Excel
+    </button>
+    <button type="submit" formaction="/admin/reports/export_csv" class="btn btn-secondary btn-sm">Export CSV</button>
+    <span class="muted-text" style="font-size:11px;">Leave dates blank for all time.</span>
+  </form>
+
+  <!-- KPI Summary Cards (Image 5 style: border-left 4px accent) -->
+  <div class="kpi-grid" style="grid-template-columns:repeat(auto-fit, minmax(200px, 1fr));gap:12px;margin-bottom:16px;">
+    <div class="card kpi-live" data-kpi="sc_recorded" style="margin-bottom:0;text-align:center;padding:16px;border-left:4px solid var(--primary);">
+      <div class="kpi-num">{{ reports_kpis.total_reports }}</div>
+      <div class="kpi-label">Total Submissions</div>
+    </div>
+    <div class="card kpi-live" data-kpi="sc_review_pending" style="margin-bottom:0;text-align:center;padding:16px;border-left:4px solid var(--st-pending);">
+      <div class="kpi-num" style="color:var(--st-pending);">{{ reports_kpis.pending_review }}</div>
+      <div class="kpi-label">Pending Review</div>
+    </div>
+    <div class="card kpi-live" data-kpi="sc_accepted" style="margin-bottom:0;text-align:center;padding:16px;border-left:4px solid var(--st-accepted);">
+      <div class="kpi-num" style="color:var(--st-accepted);">{{ reports_kpis.accepted_reports }}</div>
+      <div class="kpi-label">Accepted Submissions</div>
+    </div>
+    <div class="card kpi-live" data-kpi="sc_rejected" style="margin-bottom:0;text-align:center;padding:16px;border-left:4px solid var(--st-rejected);">
+      <div class="kpi-num" style="color:var(--st-rejected);">{{ reports_kpis.rejected_reports }}</div>
+      <div class="kpi-label">Rejected Submissions</div>
+    </div>
+  </div>
+
+  <!-- Filters & Bulk Review Actions -->
+  <form method="post" action="/admin/reports/bulk_review" id="bulkReportsForm">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    
+    <div class="card" style="padding:10px 14px;margin-bottom:12px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+        <div style="display:flex;gap:8px;align-items:center;">
+          <button type="submit" name="action" value="accept" class="btn btn-primary btn-sm">Accept Selected</button>
+          <button type="submit" name="action" value="reject" class="btn btn-danger btn-sm">Reject Selected</button>
+          <span class="muted-text" style="font-size:12px;">(Select rows below to bulk review)</span>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <span class="muted-text">Status Filter:</span>
+          <a href="/admin/reports?lang={{ lang_param }}&status=ALL" class="btn btn-secondary btn-sm {% if not filter_status or filter_status == 'ALL' %}btn-primary{% endif %}" style="height:26px;padding:0 8px;">All</a>
+          <a href="/admin/reports?lang={{ lang_param }}&status=SUBMITTED" class="btn btn-secondary btn-sm {% if filter_status == 'SUBMITTED' %}btn-primary{% endif %}" style="height:26px;padding:0 8px;">Submitted</a>
+          <a href="/admin/reports?lang={{ lang_param }}&status=ACCEPTED" class="btn btn-secondary btn-sm {% if filter_status == 'ACCEPTED' or filter_status == 'APPROVED' %}btn-primary{% endif %}" style="height:26px;padding:0 8px;">Accepted</a>
+          <a href="/admin/reports?lang={{ lang_param }}&status=REJECTED" class="btn btn-secondary btn-sm {% if filter_status == 'REJECTED' %}btn-primary{% endif %}" style="height:26px;padding:0 8px;">Rejected</a>
+        </div>
+      </div>
+    </div>
+
+    <div class="table-container">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th style="width:36px;"><input type="checkbox" id="selectAllReports" onclick="toggleSelectAllReports(this)"></th>
+            <th style="width:50px;">Sl. No</th>
+            <th>Script Code</th>
+            <th>Agents</th>
+            <th>Language</th>
+            <th>Taxonomy</th>
+            <th>Time Taken</th>
+            <th>Submission Photo</th>
+            <th>Status</th>
+            <th>Reviewed By</th>
+            <th style="text-align:right;">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in reports %}
+          <tr>
+            <td>
+              <input type="checkbox" name="selected_ids" value="{{ r.id }}" class="report-select-cb">
+            </td>
+            <td class="muted-text">{{ loop.index }}</td>
+            <td style="font-weight:700;">
+              <a href="javascript:void(0)" onclick="openReportScript({{ r.id }})" 
+                 class="hover-trigger" 
+                 data-hover-script='{"code":{{ r.script_code|tojson }},"domain":{{ r.domain|tojson }},"subdomain":{{ r.subdomain|tojson }},"specialisation":{{ (r.specialisation or "-")|tojson }},"status":{{ r.review_status|tojson }},"words":{{ (r.words or 0)|tojson }},"pair":{{ (r.agent_a_name ~ " & " ~ r.agent_b_name)|tojson }}}' 
+                 style="color:var(--primary);text-decoration:none;" title="Click to view script dialogue">{{ r.script_code }} ↗</a>
+            </td>
+            <td>
+              <a href="/admin?lang_id={{ r.language_id }}&agent_id={{ r.uid_a }}" class="hover-trigger" style="color:#16292A;text-decoration:none;font-weight:700;" title="View complete details for {{ r.agent_a_name }}" data-hover-agent='{"name":{{ r.agent_a_name|tojson }},"role":"Agent","phone":{{ (r.agent_a_phone or "-")|tojson }},"email":{{ (r.agent_a_email or "-")|tojson }},"gender":{{ (r.agent_a_gender or "-")|tojson }},"language":{{ r.lang_name|tojson }},"availability":{{ (r.agent_a_avail or "All day")|tojson }},"partner":{{ r.agent_b_name|tojson }},"status":"Active","recorded_h":{{ (r.agent_a_rec_h or 0.0)|tojson }}}'>{{ r.agent_a_name }}</a>
+              <span class="muted-text">&amp;</span>
+              <a href="/admin?lang_id={{ r.language_id }}&agent_id={{ r.uid_b }}" class="hover-trigger" style="color:#16292A;text-decoration:none;font-weight:700;" title="View complete details for {{ r.agent_b_name }}" data-hover-agent='{"name":{{ r.agent_b_name|tojson }},"role":"Agent","phone":{{ (r.agent_b_phone or "-")|tojson }},"email":{{ (r.agent_b_email or "-")|tojson }},"gender":{{ (r.agent_b_gender or "-")|tojson }},"language":{{ r.lang_name|tojson }},"availability":{{ (r.agent_b_avail or "All day")|tojson }},"partner":{{ r.agent_a_name|tojson }},"status":"Active","recorded_h":{{ (r.agent_b_rec_h or 0.0)|tojson }}}'>{{ r.agent_b_name }}</a>
+            </td>
+            <td>{{ r.lang_name }}</td>
+            <td>{{ r.domain }} &gt; {{ r.subdomain }} &gt; {{ r.specialisation }}</td>
+            <td style="font-weight:600;">{{ r.time_taken }}</td>
+            <td>
+              {% if r.proof_img %}
+                <button type="button" class="btn btn-secondary btn-sm" style="height:24px;padding:0 8px;font-size:12px;" onclick="openProofPhotoModal('/uploads/{{ r.proof_img }}', {{ r.script_code|tojson }}, {{ (r.agent_a_name ~ ' & ' ~ r.agent_b_name)|tojson }}, {{ r.time_taken|tojson }})">View Photo</button>
+              {% else %}
+                <span class="muted-text">No photo</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if r.review_status == 'APPROVED' or r.review_status == 'ACCEPTED' %}
+                <span class="status-badge status-accepted">Accepted</span>
+              {% elif r.review_status == 'REJECTED' %}
+                <span class="status-badge status-rejected">Rejected</span>
+              {% else %}
+                <span class="status-badge status-submitted">Submitted</span>
+              {% endif %}
+            </td>
+            <td>
+              {{ r.reviewed_by or '-' }}
+              {% if r.review_note %}
+                <div class="muted-text" style="font-size:11px;margin-top:2px;font-style:italic;">Note: {{ r.review_note }}</div>
+              {% endif %}
+            </td>
+            <td style="text-align:right;white-space:nowrap;">
+              {% if r.review_status != 'APPROVED' and r.review_status != 'ACCEPTED' %}
+                <button type="button" class="btn btn-primary btn-sm" style="height:24px;padding:0 6px;" onclick="reviewSingle({{ r.id }}, 'accept')">Accept</button>
+                <button type="button" class="btn btn-danger btn-sm" style="height:24px;padding:0 6px;" onclick="reviewSingle({{ r.id }}, 'reject')">Reject</button>
+              {% else %}
+                <span class="muted-text" style="font-size:12px;">Verified</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="11" class="muted-text" style="text-align:center;">No reports found matching filter.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </form>
+
+  <script>
+  window.REPORTS_CACHE = window.REPORTS_CACHE || {};
+  {% for r in reports %}
+  window.REPORTS_CACHE[{{ r.id|tojson }}] = {
+    code: {{ r.script_code|tojson }},
+    taxonomy: {{ r.taxonomy|tojson }},
+    time_taken: {{ r.time_taken|tojson }},
+    status: {{ r.review_status|tojson }},
+    dialogue: {{ (r.dialogue or '')|tojson }}
+  };
+  {% endfor %}
+  </script>
+
+{% elif active_tab == 'client_access' %}
+  <!-- ========================================================
+       CLIENT ACCESS LINKS & TRAINING VIDEO MANAGEMENT
+       Minimalist & Clean Layout
+       ======================================================== -->
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;gap:12px;flex-wrap:wrap;">
+    <div>
+      <h2 style="margin:0;font-size:20px;font-weight:700;color:#16292A;">Client Access &amp; Training</h2>
+      <div class="muted-text" style="font-size:13px;color:#5E7877;margin-top:2px;">
+        Manage external portal access credentials and the agent training walkthrough video
+      </div>
+    </div>
+    <button type="button" class="btn btn-primary btn-sm" onclick="openAddClientAccessModal()" style="display:inline-flex;align-items:center;gap:6px;">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+      Add Access Link
+    </button>
+  </div>
+
+  <!-- 1. Sleek Training Video Card -->
+  <div class="card" style="padding:14px 18px;margin-bottom:18px;border:1px solid #DCEDEC;border-radius:8px;background:#FFFFFF;">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:12px;">
+      <div style="display:flex;align-items:center;gap:10px;">
+        <div style="width:34px;height:34px;border-radius:6px;background:#EBF5F4;display:flex;align-items:center;justify-content:center;color:#0F766E;">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="23 7 16 12 23 17 23 7"></polygon>
+            <rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect>
+          </svg>
+        </div>
+        <div>
+          <div style="font-weight:700;font-size:14px;color:#16292A;">Agent Training Video</div>
+          <div style="font-size:12px;color:#5E7877;">
+            Active source: <code style="background:#F2F8F8;padding:1px 6px;border-radius:4px;color:#0F766E;font-size:11.5px;max-width:320px;display:inline-block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom;">{{ training_video_url }}</code>
+          </div>
+        </div>
+      </div>
+      <button type="button" class="btn btn-secondary btn-sm" onclick="openAdminVideoPreview()" style="display:inline-flex;align-items:center;gap:6px;font-size:12px;height:30px;">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+        Preview Video
+      </button>
+    </div>
+
+    <form method="post" action="/admin/client_access/video" enctype="multipart/form-data" style="margin:0;">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <div style="display:grid;grid-template-columns:1.2fr 1.6fr auto;gap:10px;align-items:center;">
+        <div>
+          <input type="file" id="trainingVideoFile" name="video_file" class="form-input" accept="video/*" style="padding:5px 8px;font-size:12px;height:32px;">
+        </div>
+        <div>
+          <input type="text" id="trainingVideoUrl" name="video_url" class="form-input" value="{{ training_video_url }}" placeholder="Or paste embed URL (e.g. YouTube, Drive, S3)" style="font-size:12px;height:32px;">
+        </div>
+        <div>
+          <button type="submit" class="btn btn-primary btn-sm" style="height:32px;padding:0 14px;white-space:nowrap;">Update Video</button>
+        </div>
+      </div>
+    </form>
+  </div>
+
+  <!-- 2. Minimalist Quick Add Card -->
+  <div class="card" style="padding:14px 18px;margin-bottom:18px;border:1px solid #DCEDEC;border-radius:8px;background:#F9FCFC;">
+    <div style="font-size:12.5px;font-weight:700;color:#16292A;margin-bottom:10px;text-transform:uppercase;letter-spacing:0.5px;">
+      Quick Add Access Link
+    </div>
+    <form method="post" action="/admin/client_access/add" style="margin:0;">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <div style="display:grid;grid-template-columns:1fr 1.2fr 1.6fr 1.1fr auto;gap:10px;align-items:center;">
+        <div><select name="language_id" class="form-select" style="font-size:12.5px;height:34px;">{% if user.role in ('admin','developer') %}<option value="">All languages</option>{% endif %}{% for l in allowed_langs %}<option value="{{ l.id }}" {% if not all_mode and L and L.id == l.id %}selected{% endif %}>{{ l.name }}</option>{% endfor %}</select></div>
+        <div>
+          <input type="text" id="qaTaxonomy" name="taxonomy" class="form-input" required placeholder="Taxonomy (e.g. Healthcare > Outpatient)" style="font-size:12.5px;height:34px;">
+        </div>
+        <div>
+          <input type="url" id="qaUrl" name="url" class="form-input" required placeholder="Client Portal URL (https://...)" style="font-size:12.5px;height:34px;">
+        </div>
+        <div>
+          <input type="text" id="qaCode" name="code" class="form-input" required placeholder="Access Code" style="font-size:12.5px;height:34px;">
+        </div>
+        <div>
+          <button type="submit" class="btn btn-primary btn-sm" style="height:34px;padding:0 16px;white-space:nowrap;">+ Add</button>
+        </div>
+      </div>
+    </form>
+    <details style="margin-top:12px;">
+      <summary style="cursor:pointer;font-size:12px;font-weight:600;color:#0F766E;">Bulk add (paste many at once)</summary>
+      <form method="post" action="/admin/client_access/bulk" style="margin:10px 0 0;">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <div class="muted-text" style="font-size:11px;margin-bottom:6px;">One per line: <code>language, taxonomy, url, code</code> (comma or tab separated). Use <code>All</code> for all languages.</div>
+        <textarea name="bulk" class="form-input" rows="4" style="font-family:monospace;font-size:12px;height:auto;padding:8px;" placeholder="Kannada, Healthcare > Consultation, https://portal.example.com, AWIGN-REC-2026&#10;Tamil, BFSI > Banking, https://session.example.com, CLIENT-SESS-9024"></textarea>
+        <div style="margin-top:8px;"><button type="submit" class="btn btn-secondary btn-sm">Bulk Add Links</button></div>
+      </form>
+    </details>
+  </div>
+
+  <!-- 3. Minimalist Client Access Links Table -->
+  <div class="table-container" style="border:1px solid #DCEDEC;border-radius:8px;overflow:hidden;background:#FFFFFF;">
+    <table class="data-table" style="margin:0;">
+      <thead>
+        <tr>
+          <th style="width:60px;">Sl. No</th>
+          <th>Language</th>
+          <th>Taxonomy</th>
+          <th>Portal URL</th>
+          <th style="width:180px;">Access Code</th>
+          <th style="text-align:right;width:120px;">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in portal_access_items %}
+        <tr>
+          <td>{{ loop.index }}</td>
+          <td><span class="status-badge" style="border:1px solid #DCEDEC;">{{ item.language_name }}</span></td>
+          <td style="font-weight:700;color:#16292A;">{{ item.taxonomy or item.name or 'General' }}</td>
+          <td>
+            <div style="display:inline-flex;align-items:center;gap:6px;">
+              <a href="{{ item.url }}" target="_blank" rel="noopener" style="color:var(--primary);font-weight:600;text-decoration:none;display:inline-flex;align-items:center;gap:4px;">
+                <span>{{ item.url }}</span>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+              </a>
+              <button type="button" class="copy-icon-btn" onclick="copyToClipboard({{ item.url|tojson }}, this)" title="Copy URL" style="background:none;border:none;cursor:pointer;padding:2px 4px;color:var(--muted);display:inline-flex;align-items:center;border-radius:4px;">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+              </button>
+            </div>
+          </td>
+          <td>
+            <div style="display:inline-flex;align-items:center;gap:6px;">
+              <span style="font-family:monospace;font-weight:700;background:#F4F9F8;padding:2px 8px;border:1px solid #DCEDEC;border-radius:4px;color:#16292A;font-size:12px;">{{ item.code }}</span>
+              <button type="button" class="copy-icon-btn" onclick="copyToClipboard({{ item.code|tojson }}, this)" title="Copy Code" style="background:none;border:none;cursor:pointer;padding:2px 4px;color:var(--muted);display:inline-flex;align-items:center;border-radius:4px;">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+              </button>
+            </div>
+          </td>
+          <td style="text-align:right;white-space:nowrap;">
+            <div style="display:inline-flex;align-items:center;gap:4px;">
+              <button type="button" class="btn btn-secondary btn-sm" style="height:26px;padding:0 8px;font-size:12px;"
+                      onclick='openEditClientAccessModal({{ item.idx }}, {{ (item.taxonomy or item.name or "General")|tojson }}, {{ item.url|tojson }}, {{ item.code|tojson }}, {{ (item.language_id or '')|tojson }})'>Edit</button>
+              <form method="post" action="/admin/client_access/delete/{{ item.idx }}" style="display:inline;margin:0;" onsubmit="return confirm('Remove this Client Access link?');">
+                <input type="hidden" name="csrf" value="{{ csrf }}">
+                <button type="submit" class="btn btn-danger btn-sm" style="height:26px;padding:0 8px;font-size:12px;">Delete</button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="5" style="text-align:center;padding:32px 16px;color:#5E7877;">
+            <div style="font-size:24px;margin-bottom:6px;">🔗</div>
+            <div style="font-weight:600;color:#16292A;">No Client Access links configured</div>
+            <div style="font-size:12px;margin-top:2px;">Add links above to make them accessible to agents in their recording portal.</div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Add Client Access Modal -->
+  <div id="addClientAccessModal" class="modal-overlay">
+    <div class="modal-box">
+      <div class="modal-title">Add Client Access Link</div>
+      <form method="post" action="/admin/client_access/add">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <div class="form-group">
+          <label class="form-label">Language *</label>
+          <select name="language_id" class="form-select" style="">{% if user.role in ('admin','developer') %}<option value="">All languages</option>{% endif %}{% for l in allowed_langs %}<option value="{{ l.id }}" {% if not all_mode and L and L.id == l.id %}selected{% endif %}>{{ l.name }}</option>{% endfor %}</select>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="addCaTaxonomy">Taxonomy *</label>
+          <input type="text" id="addCaTaxonomy" name="taxonomy" class="form-input" required placeholder="e.g. Healthcare > Consultation">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="addCaUrl">Client Portal URL *</label>
+          <input type="url" id="addCaUrl" name="url" class="form-input" required placeholder="https://client-portal.recording-system.com">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="addCaCode">Access Code *</label>
+          <input type="text" id="addCaCode" name="code" class="form-input" required placeholder="e.g. AWIGN-REC-2026">
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-secondary" onclick="closeAddClientAccessModal()">Cancel</button>
+          <button type="submit" class="btn btn-primary">Add Link</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Edit Client Access Modal -->
+  <div id="editClientAccessModal" class="modal-overlay">
+    <div class="modal-box">
+      <div class="modal-title">Edit Client Access Link</div>
+      <form method="post" action="" id="editClientAccessForm">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <div class="form-group">
+          <label class="form-label">Language *</label>
+          <select name="language_id" id="editCaLang" class="form-select" style="">{% if user.role in ('admin','developer') %}<option value="">All languages</option>{% endif %}{% for l in allowed_langs %}<option value="{{ l.id }}" {% if not all_mode and L and L.id == l.id %}selected{% endif %}>{{ l.name }}</option>{% endfor %}</select>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="editCaTaxonomy">Taxonomy *</label>
+          <input type="text" id="editCaTaxonomy" name="taxonomy" class="form-input" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="editCaUrl">Client Portal URL *</label>
+          <input type="url" id="editCaUrl" name="url" class="form-input" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="editCaCode">Access Code *</label>
+          <input type="text" id="editCaCode" name="code" class="form-input" required>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-secondary" onclick="closeEditClientAccessModal()">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save Changes</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Admin Training Video Preview Modal -->
+  <div id="adminVideoPreviewModal" class="modal-overlay" onclick="if(event.target.id==='adminVideoPreviewModal') closeAdminVideoPreview()">
+    <div class="modal-box" style="max-width:720px;padding:0;overflow:hidden;background:#0F172A;">
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px;background:#032E30;color:#FFFFFF;">
+        <span style="font-weight:700;">Training Video Preview</span>
+        <button type="button" class="btn btn-secondary btn-sm" onclick="closeAdminVideoPreview()" style="height:26px;padding:0 8px;">✕ Close</button>
+      </div>
+      <div style="position:relative;width:100%;padding-bottom:56.25%;background:#000;">
+        <video id="adminPreviewPlayer" controls playsinline style="display:none;position:absolute;top:0;left:0;width:100%;height:100%;"></video>
+        <iframe id="adminPreviewIframe" src="" style="display:none;position:absolute;top:0;left:0;width:100%;height:100%;border:0;" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+      </div>
+    </div>
+  </div>
+
+  <script>
+  const currentAdminVideoUrl = {{ (training_video_url or 'https://www.youtube.com/embed/dQw4w9WgXcQ')|tojson }};
+
+  function openAddClientAccessModal() {
+    const m = document.getElementById('addClientAccessModal');
+    if (m) m.classList.add('active');
+  }
+  function closeAddClientAccessModal() {
+    const m = document.getElementById('addClientAccessModal');
+    if (m) m.classList.remove('active');
+  }
+
+  function openEditClientAccessModal(idx, taxonomy, url, code, lang) {
+    const ls = document.getElementById('editCaLang'); if (ls) ls.value = String(lang || '');
+    const form = document.getElementById('editClientAccessForm');
+    if (form) form.action = `/admin/client_access/edit/${idx}`;
+    const t = document.getElementById('editCaTaxonomy');
+    if (t) t.value = taxonomy || '';
+    const u = document.getElementById('editCaUrl');
+    if (u) u.value = url || '';
+    const c = document.getElementById('editCaCode');
+    if (c) c.value = code || '';
+    const m = document.getElementById('editClientAccessModal');
+    if (m) m.classList.add('active');
+  }
+  function closeEditClientAccessModal() {
+    const m = document.getElementById('editClientAccessModal');
+    if (m) m.classList.remove('active');
+  }
+
+  function openAdminVideoPreview() {
+    const m = document.getElementById('adminVideoPreviewModal');
+    const player = document.getElementById('adminPreviewPlayer');
+    const iframe = document.getElementById('adminPreviewIframe');
+    if (!m) return;
+    const clean = (currentAdminVideoUrl || '').split('?')[0].toLowerCase();
+    const isDirect = clean.startsWith('/uploads/') || clean.endsWith('.mp4') || clean.endsWith('.webm') || clean.endsWith('.ogg') || clean.endsWith('.mov');
+    if (isDirect) {
+      if (iframe) { iframe.src = ''; iframe.style.display = 'none'; }
+      if (player) { player.style.display = 'block'; player.src = currentAdminVideoUrl; player.play().catch(()=>{}); }
+    } else {
+      if (player) { player.pause(); player.removeAttribute('src'); player.style.display = 'none'; }
+      if (iframe) { iframe.style.display = 'block'; iframe.src = currentAdminVideoUrl; }
+    }
+    m.classList.add('active');
+  }
+  function closeAdminVideoPreview() {
+    const m = document.getElementById('adminVideoPreviewModal');
+    const player = document.getElementById('adminPreviewPlayer');
+    const iframe = document.getElementById('adminPreviewIframe');
+    if (iframe) iframe.src = '';
+    if (player) { player.pause(); player.removeAttribute('src'); }
+    if (m) m.classList.remove('active');
+  }
+  </script>
+
+{% endif %}
+
+<!-- Proof Photo Modal -->
+<div id="proofPhotoModal" class="modal-overlay" onclick="if(event.target===this)closeProofPhotoModal()">
+  <div class="modal-box" style="max-width:680px;width:92%;">
+    <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border);padding-bottom:12px;margin-bottom:14px;">
+      <div>
+        <div class="modal-title" id="proofPhotoModalTitle" style="margin-bottom:2px;">Submission Proof Photo</div>
+        <div style="font-size:12px;color:var(--muted);" id="proofPhotoModalSubtitle"></div>
+      </div>
+      <button type="button" class="btn btn-secondary btn-sm" onclick="closeProofPhotoModal()" style="padding:2px 8px;font-size:16px;line-height:1;">&times;</button>
+    </div>
+    <div style="text-align:center;background:#0F172A;border-radius:var(--radius);padding:10px;min-height:220px;display:flex;align-items:center;justify-content:center;">
+      <img id="proofPhotoModalImg" src="" alt="Proof Photo" onerror="this.alt='Photo file not found in storage (it was uploaded before cloud storage was enabled, or the upload failed).';this.style.color='#fff'" style="max-width:100%;max-height:500px;border-radius:4px;object-fit:contain;">
+    </div>
+    <div class="modal-actions" style="margin-top:14px;display:flex;justify-content:space-between;align-items:center;">
+      <a id="proofPhotoOpenNewTab" href="#" target="_blank" rel="noopener" class="btn btn-secondary btn-sm">Open Full Image ↗</a>
+      <button type="button" class="btn btn-primary btn-sm" onclick="closeProofPhotoModal()">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Single Review Modal (Accept / Reject with optional reason) -->
+<div id="reviewSingleModal" class="modal-overlay">
+  <div class="modal-box">
+    <div class="modal-title" id="reviewSingleTitle">Review Submission</div>
+    <form method="post" action="/admin/reports/review_single" id="reviewSingleForm">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <input type="hidden" name="report_id" id="reviewSingleReportId" value="">
+      <input type="hidden" name="assignment_id" id="reviewSingleAssignmentId" value="">
+      <input type="hidden" name="verdict" id="reviewSingleVerdict" value="">
+      <div class="form-group">
+        <label class="form-label" for="reviewReason">Reason (Optional)</label>
+        <textarea id="reviewReason" name="reason" class="form-textarea" rows="2" placeholder="Optional review note or reject reason..."></textarea>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-secondary" onclick="closeReviewModal()">Cancel</button>
+        <button type="submit" id="reviewSingleSubmitBtn" class="btn btn-primary">Confirm</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Add Agent Manual Modal (AD2) -->
+<div id="addAgentModal" class="modal-overlay">
+  <div class="modal-box">
+    <div class="modal-title">Add Agent</div>
+    <form method="post" action="/admin/agents/add">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <div class="form-group">
+        <label class="form-label" for="agName">Agent Name *</label>
+        <input type="text" id="agName" name="name" class="form-input" required placeholder="e.g. Ramesh">
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="agLang">Language *</label>
+        <select id="agLang" name="language_id" class="form-select" required>
+          {% for l in langs %}
+            <option value="{{ l.id }}">{{ l.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="agPhone">Phone *</label>
+        <input type="text" id="agPhone" name="phone" class="form-input" required placeholder="98XXXXXX01">
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="agEmail">Email</label>
+        <input type="email" id="agEmail" name="email" class="form-input" placeholder="agent@awign.com">
+      </div>
+      <div class="form-row">
+        <div class="form-group" style="flex:1;">
+          <label class="form-label" for="agGender">Gender</label>
+          <select id="agGender" name="gender" class="form-select">
+            <option value="M">Male (M)</option>
+            <option value="F">Female (F)</option>
+          </select>
+        </div>
+        <div class="form-group" style="flex:1;">
+          <label class="form-label" for="agAvail">Availability</label>
+          <select id="agAvail" name="availability" class="form-select">
+            <option value="Morning">Morning</option>
+            <option value="Afternoon">Afternoon</option>
+            <option value="Night">Night</option>
+            <option value="All day">All day</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-secondary" onclick="closeAddAgentModal()">Cancel</button>
+        <button type="submit" class="btn btn-primary">Add Agent</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Import Agents Modal: Google Sheet link (auto-sync) OR local Excel/CSV -->
+<div id="bulkAgentModal" class="modal-overlay">
+  <div class="modal-box" style="max-width:760px;width:94%;max-height:90vh;overflow:auto;">
+    <div class="modal-title">Import Agents</div>
+
+    <div style="display:flex;gap:8px;margin-bottom:12px;">
+      <button type="button" id="impTabSheet" class="btn btn-primary btn-sm" onclick="impTab('sheet')">Google Sheet link</button>
+      <button type="button" id="impTabFile" class="btn btn-secondary btn-sm" onclick="impTab('file')">Upload Excel / CSV</button>
+    </div>
+
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;background:#F8FAFC;border:1px solid var(--border);border-radius:8px;padding:10px 14px;margin-bottom:14px;">
+      <div style="font-size:12px;color:#5E7877;line-height:1.5;">
+        Columns: <code>name</code> + (<code>phone</code> or <code>email</code>) required · optional <code>gender</code>, <code>availability</code>, <code>language</code>.
+        Matching agents (same phone/email, same language) are updated; none are deleted.
+      </div>
+      <div style="display:flex;gap:8px;flex-shrink:0;">
+        <a class="btn btn-secondary btn-sm" href="/admin/template/agents.xlsx" title="Download a ready-to-fill Excel template">⬇ Excel template</a>
+        <a class="btn btn-secondary btn-sm" href="/admin/template/agents.csv" title="Download a ready-to-fill CSV template">⬇ CSV template</a>
+      </div>
+    </div>
+
+    <!-- Tab 1: Google Sheet link -->
+    <form id="impPaneSheet" method="post" action="/admin/agents/sheet_link">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <div class="form-group">
+        <label class="form-label" for="agSheetLang">Language</label>
+        <select id="agSheetLang" name="language_id" class="form-select">
+          <option value="" {% if not agent_sheet.lang %}selected{% endif %}>Use the 'language' column in the sheet</option>
+          {% for l in langs %}<option value="{{ l.id }}" {% if agent_sheet.lang|string == l.id|string %}selected{% endif %}>{{ l.name }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="agSheetUrl">Google Sheet link</label>
+        <input type="url" id="agSheetUrl" name="sheet_url" class="form-input" value="{{ agent_sheet.url }}" placeholder="https://docs.google.com/spreadsheets/d/.../edit#gid=0">
+        <div class="muted-text" style="font-size:11px;margin-top:4px;">Agents come from the <strong>tab you open</strong> when copying this link. Sheet must be shared as <strong>Anyone with the link &rarr; Viewer</strong> (or with the service account in the Developer panel).</div>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="agPairsTab">Pairs tab name <span class="muted-text">(same spreadsheet, optional)</span></label>
+        <input type="text" id="agPairsTab" name="pairs_tab" class="form-input" value="{{ agent_sheet.pairs_tab or '' }}" placeholder="e.g. Pairs">
+        <div class="muted-text" style="font-size:11px;margin-top:4px;">If set, a second tab in the <strong>same spreadsheet</strong> with columns <code>Agent A, Agent B, Availability</code> creates pairs. Agents are imported first, so <strong>a person must already be an agent to be paired</strong> — rows naming an unknown agent are rejected.</div>
+      </div>
+      <div class="form-group" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;"><input type="checkbox" name="auto" value="1" {% if agent_sheet.auto %}checked{% endif %}> Auto-sync every</label>
+        <input type="number" name="every_min" min="5" max="1440" value="{{ agent_sheet.every }}" class="form-input" style="width:80px;height:30px;text-align:center;"> <span class="muted-text">minutes</span>
+      </div>
+      {% if agent_sheet.last %}<div class="muted-text" style="font-size:11px;margin-bottom:8px;">Last auto/manual sync: {{ agent_sheet.last }}</div>{% endif %}
+      <div class="modal-actions">
+        <button type="button" class="btn btn-secondary" onclick="closeBulkAgentModal()">Cancel</button>
+        <button type="submit" name="action" value="save" class="btn btn-secondary">Save link</button>
+        <button type="submit" name="action" value="sync_now" class="btn btn-primary">Save &amp; sync now</button>
+      </div>
+    </form>
+
+    <!-- Tab 2: local file -->
+    <form id="impPaneFile" method="post" action="/admin/agents/bulk_upload" enctype="multipart/form-data" style="display:none;">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <div class="form-group">
+        <label class="form-label" for="bulkLang">Language</label>
+        <select id="bulkLang" name="language_id" class="form-select">
+          <option value="">Use the 'language' column in the file</option>
+          {% for l in langs %}<option value="{{ l.id }}">{{ l.name }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="bulkCsv">Excel (.xlsx) or CSV file</label>
+        <input type="file" id="bulkCsv" name="file" class="form-input" accept=".xlsx,.csv" required>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-secondary" onclick="closeBulkAgentModal()">Cancel</button>
+        <button type="submit" class="btn btn-primary">Upload &amp; import</button>
+      </div>
+    </form>
+  </div>
+</div>
+<script>
+function impTab(w){
+  document.getElementById('impPaneSheet').style.display = w==='sheet' ? '' : 'none';
+  document.getElementById('impPaneFile').style.display = w==='file' ? '' : 'none';
+  document.getElementById('impTabSheet').className = 'btn btn-sm ' + (w==='sheet' ? 'btn-primary' : 'btn-secondary');
+  document.getElementById('impTabFile').className = 'btn btn-sm ' + (w==='file' ? 'btn-primary' : 'btn-secondary');
+}
+</script>
+
+<!-- Pair Manually Modal (AD4) -->
+<div id="pairManualModal" class="modal-overlay" onclick="onPairManualModalOverlayClick(event)">
+  <div class="modal-box" style="max-width:580px;overflow:visible;" onclick="event.stopPropagation()">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+      <div class="modal-title" style="margin:0;">Pair Manually</div>
+      <button type="button" class="btn btn-secondary btn-sm" onclick="closePairManualModal()" style="font-size:16px;line-height:1;padding:4px 8px;">✕</button>
+    </div>
+    <form method="post" action="/admin/pairs/create_manual" id="pairManualForm" onsubmit="return validateManualPairForm(event)">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <input type="hidden" name="agent_a_id" id="customAgentAInput" required>
+      <input type="hidden" name="agent_b_id" id="customAgentBInput" required>
+
+      <!-- Agent A Custom Dropdown -->
+      <div class="form-group" style="position:relative;margin-bottom:18px;">
+        <label class="form-label">Select Agent A *</label>
+        <div class="custom-select-trigger" id="agentATrigger" onclick="toggleCustomDropdown('A', event)">
+          <span id="agentALabel" style="color:var(--muted);font-size:13.5px;">-- Choose Agent A --</span>
+          <span style="font-size:11px;color:var(--muted);">▼</span>
+        </div>
+        <div class="custom-select-menu" id="agentAMenu" style="display:none;" onclick="event.stopPropagation()">
+          <div class="custom-select-search-wrap">
+            <input type="text" class="form-input custom-select-search" id="agentASearch" placeholder="Type agent name to search..." oninput="filterCustomOptions('A', this.value)" autocomplete="off">
+          </div>
+          <div class="custom-select-options" id="agentAOptions">
+            {% for a in manual_agents %}
+            <div class="custom-select-option" data-id="{{ a.id }}" data-name="{{ a.name|lower }}" data-search="{{ (a.name ~ ' ' ~ a.code ~ ' ' ~ (a.phone or ''))|lower }}" onclick="selectCustomAgent('A', {{ a.id }}, '{{ a.name|escape }}', '{{ a.code|escape }}', '{{ a.recorded_h }}', '{{ a.pct_15h }}', '{{ a.gender }}', '{{ a.availability }}')">
+              <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+                <div style="min-width:0;flex:1;">
+                  <span style="font-weight:700;color:#16292A;font-size:13px;">{{ a.name }}</span>
+                  <span class="muted-text" style="font-size:11px;font-family:monospace;background:rgba(0,0,0,0.05);padding:1px 4px;border-radius:3px;margin-left:4px;">{{ a.code }}</span>
+                  {% if a.phone %}<span class="muted-text" style="font-size:11px;margin-left:4px;">(..{{ a.phone[-4:] if a.phone|length >= 4 else a.phone }})</span>{% endif %}
+                  <span class="muted-text" style="font-size:11.5px;">({{ a.gender }} · {{ a.availability }})</span>
+                  {% if a.is_paired %}
+                    <span class="status-badge" style="border:1px solid #DCEDEC;color:#5E7877;font-size:9.5px;padding:1px 5px;margin-left:4px;">Paired: {{ a.partner_name }}</span>
+                  {% else %}
+                    <span class="status-badge status-available" style="font-size:9.5px;padding:1px 5px;margin-left:4px;">Unpaired</span>
+                  {% endif %}
+                </div>
+                <div style="text-align:right;flex-shrink:0;">
+                  <span style="font-size:11px;font-weight:600;color:{% if a.recorded_h >= 15.0 %}var(--st-limit){% elif a.recorded_h >= 12.0 %}var(--st-pending){% else %}var(--text){% endif %};">
+                    {{ a.recorded_h|hm }} / 15 h
+                  </span>
+                  <div class="progress-bar-wrap" style="width:70px;height:4px;margin-top:2px;">
+                    <div class="progress-bar-fill {% if a.recorded_h >= 15.0 %}red{% elif a.recorded_h >= 12.0 %}amber{% else %}teal{% endif %}" style="width:{{ a.pct_15h }}%;"></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+
+      <!-- Agent B Custom Dropdown -->
+      <div class="form-group" style="position:relative;margin-bottom:18px;">
+        <label class="form-label">Select Agent B *</label>
+        <div class="custom-select-trigger" id="agentBTrigger" onclick="toggleCustomDropdown('B', event)">
+          <span id="agentBLabel" style="color:var(--muted);font-size:13.5px;">-- Choose Agent B --</span>
+          <span style="font-size:11px;color:var(--muted);">▼</span>
+        </div>
+        <div class="custom-select-menu" id="agentBMenu" style="display:none;" onclick="event.stopPropagation()">
+          <div class="custom-select-search-wrap">
+            <input type="text" class="form-input custom-select-search" id="agentBSearch" placeholder="Type agent name to search..." oninput="filterCustomOptions('B', this.value)" autocomplete="off">
+          </div>
+          <div class="custom-select-options" id="agentBOptions">
+            {% for a in manual_agents %}
+            <div class="custom-select-option" data-id="{{ a.id }}" data-name="{{ a.name|lower }}" data-search="{{ (a.name ~ ' ' ~ a.code ~ ' ' ~ (a.phone or ''))|lower }}" onclick="selectCustomAgent('B', {{ a.id }}, '{{ a.name|escape }}', '{{ a.code|escape }}', '{{ a.recorded_h }}', '{{ a.pct_15h }}', '{{ a.gender }}', '{{ a.availability }}')">
+              <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+                <div style="min-width:0;flex:1;">
+                  <span style="font-weight:700;color:#16292A;font-size:13px;">{{ a.name }}</span>
+                  <span class="muted-text" style="font-size:11px;font-family:monospace;background:rgba(0,0,0,0.05);padding:1px 4px;border-radius:3px;margin-left:4px;">{{ a.code }}</span>
+                  {% if a.phone %}<span class="muted-text" style="font-size:11px;margin-left:4px;">(..{{ a.phone[-4:] if a.phone|length >= 4 else a.phone }})</span>{% endif %}
+                  <span class="muted-text" style="font-size:11.5px;">({{ a.gender }} · {{ a.availability }})</span>
+                  {% if a.is_paired %}
+                    <span class="status-badge" style="border:1px solid #DCEDEC;color:#5E7877;font-size:9.5px;padding:1px 5px;margin-left:4px;">Paired: {{ a.partner_name }}</span>
+                  {% else %}
+                    <span class="status-badge status-available" style="font-size:9.5px;padding:1px 5px;margin-left:4px;">Unpaired</span>
+                  {% endif %}
+                </div>
+                <div style="text-align:right;flex-shrink:0;">
+                  <span style="font-size:11px;font-weight:600;color:{% if a.recorded_h >= 15.0 %}var(--st-limit){% elif a.recorded_h >= 12.0 %}var(--st-pending){% else %}var(--text){% endif %};">
+                    {{ a.recorded_h|hm }} / 15 h
+                  </span>
+                  <div class="progress-bar-wrap" style="width:70px;height:4px;margin-top:2px;">
+                    <div class="progress-bar-fill {% if a.recorded_h >= 15.0 %}red{% elif a.recorded_h >= 12.0 %}amber{% else %}teal{% endif %}" style="width:{{ a.pct_15h }}%;"></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+
+      <div id="manualPairError" style="display:none;color:#D64545;font-size:13px;font-weight:600;margin-bottom:12px;"></div>
+
+      <div class="modal-actions">
+        <button type="button" class="btn btn-secondary" onclick="closePairManualModal()">Cancel</button>
+        <button type="submit" class="btn btn-primary">Confirm Pair</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Pair Scripts Modal (AD4: View scripts assigned to pair & release scripts) -->
+<div id="pairScriptsModal" class="modal-overlay" onclick="onPairScriptsOverlayClick(event)">
+  <div class="modal-box" style="max-width:840px;max-height:88vh;display:flex;flex-direction:column;overflow:hidden;" onclick="event.stopPropagation()">
+    <!-- Header -->
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;padding-bottom:12px;border-bottom:1px solid var(--border);margin-bottom:12px;">
+      <div>
+        <div id="pairScriptsModalTitle" style="font-size:18px;font-weight:700;color:var(--text);">Assigned Scripts for Pair</div>
+        <div id="pairScriptsModalSubtitle" class="muted-text" style="font-size:13px;margin-top:2px;">Pair details, statistics and script assignment control</div>
+      </div>
+      <button type="button" class="btn btn-secondary btn-sm" onclick="closePairScriptsModal()" style="font-size:16px;line-height:1;padding:4px 8px;">✕</button>
+    </div>
+
+    <!-- Notification Toast / Banner inside modal -->
+    <div id="pairScriptsNotice" style="display:none;padding:8px 12px;border-radius:var(--radius);font-size:13px;font-weight:600;margin-bottom:12px;"></div>
+
+    <!-- Pair Details Card (Partner A, Partner B, Language, Availability, Recorded hours, Status) -->
+    <div id="pairDetailsCard" style="background:#F8FAFB;border:1px solid var(--border);border-radius:var(--radius);padding:12px 14px;margin-bottom:12px;">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));gap:12px;font-size:13px;">
+        <div>
+          <div class="muted-text" style="font-size:10.5px;text-transform:uppercase;letter-spacing:0.5px;font-weight:700;">Partner A</div>
+          <div style="font-weight:700;color:var(--text);font-size:14px;margin-top:2px;" id="psPartnerA">-</div>
+          <div class="muted-text" style="font-size:12px;margin-top:2px;" id="psPhoneA">-</div>
+        </div>
+        <div>
+          <div class="muted-text" style="font-size:10.5px;text-transform:uppercase;letter-spacing:0.5px;font-weight:700;">Partner B</div>
+          <div style="font-weight:700;color:var(--text);font-size:14px;margin-top:2px;" id="psPartnerB">-</div>
+          <div class="muted-text" style="font-size:12px;margin-top:2px;" id="psPhoneB">-</div>
+        </div>
+        <div>
+          <div class="muted-text" style="font-size:10.5px;text-transform:uppercase;letter-spacing:0.5px;font-weight:700;">Language &amp; Availability</div>
+          <div style="font-weight:600;color:var(--text);margin-top:2px;" id="psLangAvail">-</div>
+          <div style="margin-top:4px;" id="psPairStatusWrap">
+            <span class="status-badge status-available" id="psPairStatusBadge">Active</span>
+          </div>
+        </div>
+        <div>
+          <div class="muted-text" style="font-size:10.5px;text-transform:uppercase;letter-spacing:0.5px;font-weight:700;">Recorded Hours / 7.5h Limit</div>
+          <div style="font-weight:700;color:var(--text);font-size:14px;margin-top:2px;" id="psRecordedLimit">0.0 / 7.5 h</div>
+          <div class="progress-bar-wrap" style="width:125px;height:5px;margin-top:4px;">
+            <div id="psProgressBar" class="progress-bar-fill teal" style="width:0%;"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- KPI Stats Summary Strip -->
+    <div class="kpi-grid" style="grid-template-columns:repeat(5, 1fr);gap:8px;margin-bottom:12px;" id="pairScriptsKpiGrid" data-kpi-skip="1">
+      <div class="card" style="margin-bottom:0;text-align:center;padding:10px 6px;border-left:3px solid var(--primary);">
+        <div class="kpi-num" style="font-size:18px;" id="psKpiAssigned">0</div>
+        <div class="kpi-label" style="font-size:11px;">Assigned</div>
+      </div>
+      <div class="card" style="margin-bottom:0;text-align:center;padding:10px 6px;border-left:3px solid var(--st-pending);">
+        <div class="kpi-num" style="font-size:18px;color:var(--st-pending);" id="psKpiPending">0</div>
+        <div class="kpi-label" style="font-size:11px;">Pending</div>
+      </div>
+      <div class="card" style="margin-bottom:0;text-align:center;padding:10px 6px;border-left:3px solid var(--st-accepted);">
+        <div class="kpi-num" style="font-size:18px;color:var(--st-accepted);" id="psKpiCompleted">0</div>
+        <div class="kpi-label" style="font-size:11px;">Completed</div>
+      </div>
+      <div class="card" style="margin-bottom:0;text-align:center;padding:10px 6px;border-left:3px solid #3B82F6;">
+        <div class="kpi-num" style="font-size:18px;color:#3B82F6;" id="psKpiRecorded">0.0 h</div>
+        <div class="kpi-label" style="font-size:11px;">Recorded (Max 7.5h)</div>
+      </div>
+      <div class="card" style="margin-bottom:0;text-align:center;padding:10px 6px;border-left:3px solid var(--st-accepted);">
+        <div class="kpi-num" style="font-size:18px;color:var(--st-accepted);" id="psKpiAccepted">0.0 h</div>
+        <div class="kpi-label" style="font-size:11px;">Accepted</div>
+      </div>
+    </div>
+
+    <!-- Top Action Bar -->
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+      <div style="font-size:13px;font-weight:600;color:var(--text);" id="pairScriptsCountLabel">Scripts List (0)</div>
+      <button type="button" class="btn btn-danger btn-sm" id="btnReleaseAllPairScripts" onclick="releaseAllPairScripts()" style="height:28px;padding:0 10px;font-size:12px;">
+        Release All Open Scripts
+      </button>
+    </div>
+
+    <!-- Scrollable Scripts Table -->
+    <div style="flex:1;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius);max-height:360px;">
+      <table class="data-table" style="margin:0;width:100%;">
+        <thead>
+          <tr style="position:sticky;top:0;background:#FAFCFC;z-index:2;">
+            <th style="width:45px;">Sl. No</th>
+            <th>Script Code</th>
+            <th>Domain &gt; Subdomain</th>
+            <th>Status</th>
+            <th>Time Taken</th>
+            <th>Submission / Details</th>
+            <th style="text-align:right;">Action</th>
+          </tr>
+        </thead>
+        <tbody id="pairScriptsTableBody">
+          <!-- Populated dynamically via JS -->
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Modal Footer -->
+    <div style="display:flex;justify-content:flex-end;margin-top:12px;padding-top:10px;border-top:1px solid var(--border);">
+      <button type="button" class="btn btn-secondary" onclick="closePairScriptsModal()">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Edit Agent Modal -->
+<div id="editAgentModal" class="modal-overlay">
+  <div class="modal-box">
+    <div class="modal-title">Edit Agent</div>
+    <form id="editAgentForm" method="post" action="">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <div class="form-group">
+        <label class="form-label" for="editAgName">Agent Name *</label>
+        <input type="text" id="editAgName" name="name" class="form-input" required>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="editAgPhone">Phone *</label>
+        <input type="text" id="editAgPhone" name="phone" class="form-input" required>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="editAgEmail">Email</label>
+        <input type="email" id="editAgEmail" name="email" class="form-input">
+      </div>
+      <div class="form-row">
+        <div class="form-group" style="flex:1;">
+          <label class="form-label" for="editAgGender">Gender</label>
+          <select id="editAgGender" name="gender" class="form-select">
+            <option value="M">Male (M)</option>
+            <option value="F">Female (F)</option>
+          </select>
+        </div>
+        <div class="form-group" style="flex:1;">
+          <label class="form-label" for="editAgAvail">Availability</label>
+          <select id="editAgAvail" name="availability" class="form-select">
+            <option value="Morning">Morning</option>
+            <option value="Afternoon">Afternoon</option>
+            <option value="Night">Night</option>
+            <option value="All day">All day</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-secondary" onclick="closeEditAgentModal()">Cancel</button>
+        <button type="submit" class="btn btn-primary">Save Changes</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Floating Dropdown Menu for Agent Actions (Position: fixed to prevent any table clipping) -->
+<div id="agentFloatingMenu" class="floating-action-menu" style="display:none;position:fixed;z-index:99999;">
+  <button type="button" class="floating-menu-item" id="fMenuItemSendCode" onclick="handleAgentAction('send_code')">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path>
+      <polyline points="22,6 12,13 2,6"></polyline>
+    </svg>
+    <span>Send Access Code Email</span>
+  </button>
+  <button type="button" class="floating-menu-item" id="fMenuItemDetails" onclick="handleAgentAction('details')">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+      <circle cx="12" cy="7" r="4"></circle>
+    </svg>
+    <span>View Complete Details</span>
+  </button>
+  <button type="button" class="floating-menu-item" id="fMenuItemEdit" onclick="handleAgentAction('edit')">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+      <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+    </svg>
+    <span>Edit Agent</span>
+  </button>
+  <button type="button" class="floating-menu-item" id="fMenuItemToggle" onclick="handleAgentAction('toggle')">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M18.36 6.64a9 9 0 1 1-12.73 0"></path>
+      <line x1="12" y1="2" x2="12" y2="12"></line>
+    </svg>
+    <span id="fMenuToggleLabel">Deactivate</span>
+  </button>
+  <div class="floating-menu-divider"></div>
+  <button type="button" class="floating-menu-item danger" id="fMenuItemDelete" onclick="handleAgentAction('delete')">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <polyline points="3 6 5 6 21 6"></polyline>
+      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+    </svg>
+    <span>Delete Agent</span>
+  </button>
+</div>
+<form id="agentToggleForm" method="post" action="" style="display:none;">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+</form>
+<form id="agentSendCodeForm" method="post" action="" style="display:none;">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+</form>
+
+<!-- Bulk Upload Pairs Modal (AD4) -->
+<div id="bulkPairModal" class="modal-overlay">
+  <div class="modal-box" style="max-width:700px;width:94%;">
+    <div class="modal-title">Bulk Upload Pairs</div>
+    <div class="card" style="padding:10px 12px;margin-bottom:12px;background:#F8FAFC;">
+      <div style="font-weight:600;font-size:13px;margin-bottom:6px;">Required column format (row 1 = header)</div>
+      <table style="width:100%;font-size:12px;border-collapse:collapse;">
+        <thead><tr style="text-align:left;color:var(--muted);"><th style="padding:3px 6px;">Column</th><th style="padding:3px 6px;">Required</th><th style="padding:3px 6px;">What goes in it</th><th style="padding:3px 6px;">Example</th></tr></thead>
+        <tbody>
+        {% for col, req, desc, ex in pair_columns %}
+          <tr style="border-top:1px solid var(--border);"><td style="padding:3px 6px;font-family:monospace;font-weight:700;">{{ col }}</td><td style="padding:3px 6px;">{{ req }}</td><td style="padding:3px 6px;">{{ desc }}</td><td style="padding:3px 6px;font-family:monospace;">{{ ex }}</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      <div class="muted-text" style="font-size:11px;margin-top:6px;">
+        Both agents must already exist, be active and have the same language. If two agents share a name, use the phone number or access code instead.
+        Rows that fail are listed with the reason after upload. <a href="/admin/template/pairs.csv">Download template (.csv)</a>
+      </div>
+    </div>
+    <form method="post" action="/admin/pairs/bulk_upload" enctype="multipart/form-data">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      {% if lang_param != 'all' %}<input type="hidden" name="language_id" value="{{ lang_param }}">{% endif %}
+      <div class="form-group">
+        <label class="form-label" for="bulkPairCsv">Excel (.xlsx) or CSV file</label>
+        <input type="file" id="bulkPairCsv" name="file" class="form-input" accept=".xlsx,.csv" required>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-secondary" onclick="closeBulkPairModal()">Cancel</button>
+        <button type="submit" class="btn btn-primary">Upload pairs</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Script Dialogue Popup Modal (Closes on outside click, X button, or Escape) -->
+<div id="scriptDialogueModal" class="modal-overlay" onclick="onScriptModalOverlayClick(event)">
+  <div class="modal-box" style="max-width:700px;max-height:85vh;display:flex;flex-direction:column;" onclick="event.stopPropagation()">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;padding-bottom:12px;border-bottom:1px solid var(--border);margin-bottom:12px;">
+      <div>
+        <div id="modalScriptCode" style="font-size:20px;font-weight:700;color:var(--text);">KN-HC-CONS-001</div>
+        <div id="modalScriptTaxonomy" class="muted-text" style="font-size:13px;margin-top:2px;">Healthcare &gt; Consultation &gt; General OPD</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;">
+        <span id="modalScriptStatus" class="status-badge status-available">Available</span>
+        <button type="button" class="btn btn-secondary btn-sm" onclick="closeScriptModal()" style="font-size:16px;line-height:1;padding:4px 8px;">✕</button>
+      </div>
+    </div>
+
+    <div style="flex:1;overflow-y:auto;padding:14px;border:1px solid var(--border);border-radius:var(--radius);background:#FFFFFF;font-family:'Noto Sans', system-ui, sans-serif;font-size:18px;line-height:1.7;white-space:pre-wrap;color:var(--text);" id="modalScriptContent">
+    </div>
+
+    <div style="display:flex;justify-content:flex-end;margin-top:14px;padding-top:10px;border-top:1px solid var(--border);">
+      <button type="button" class="btn btn-secondary" onclick="closeScriptModal()">Close</button>
+    </div>
+  </div>
+</div>
+
+<script>
+function copyToClipboard(text, btn) {
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(() => {
+      showCopiedIcon(btn);
+    }).catch(() => fallbackCopy(text, btn));
+  } else {
+    fallbackCopy(text, btn);
+  }
+}
+
+function showCopiedIcon(btn) {
+  if (!btn) return;
+  const origHtml = btn.innerHTML;
+  btn.innerHTML = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#00A896" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
+  btn.style.color = '#00A896';
+  setTimeout(() => {
+    btn.innerHTML = origHtml;
+    btn.style.color = 'var(--muted)';
+  }, 1400);
+}
+
+function fallbackCopy(text, btn) {
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  document.body.appendChild(ta);
+  ta.select();
+  try { document.execCommand('copy'); } catch(e){}
+  document.body.removeChild(ta);
+  showCopiedIcon(btn);
+}
+
+function openAddAgentModal() { document.getElementById('addAgentModal').classList.add('active'); }
+function closeAddAgentModal() { document.getElementById('addAgentModal').classList.remove('active'); }
+
+function openBulkAgentModal() { document.getElementById('bulkAgentModal').classList.add('active'); }
+function closeBulkAgentModal() { document.getElementById('bulkAgentModal').classList.remove('active'); }
+
+function openPairManualModal() { 
+  document.getElementById('pairManualModal').classList.add('active'); 
+}
+function closePairManualModal() { 
+  document.getElementById('pairManualModal').classList.remove('active'); 
+  const menuA = document.getElementById('agentAMenu');
+  const menuB = document.getElementById('agentBMenu');
+  if (menuA) menuA.style.display = 'none';
+  if (menuB) menuB.style.display = 'none';
+  const trigA = document.getElementById('agentATrigger');
+  const trigB = document.getElementById('agentBTrigger');
+  if (trigA) trigA.classList.remove('active');
+  if (trigB) trigB.classList.remove('active');
+  const err = document.getElementById('manualPairError');
+  if (err) err.style.display = 'none';
+}
+
+// Custom Searchable Dropdown for Manual Pairing
+let activeDropdownRole = null;
+
+function toggleCustomDropdown(role, e) {
+  if (e) e.stopPropagation();
+  const menuA = document.getElementById('agentAMenu');
+  const menuB = document.getElementById('agentBMenu');
+  const trigA = document.getElementById('agentATrigger');
+  const trigB = document.getElementById('agentBTrigger');
+
+  if (role === 'A') {
+    const isOpen = (menuA && menuA.style.display === 'block');
+    if (menuA) menuA.style.display = isOpen ? 'none' : 'block';
+    if (menuB) menuB.style.display = 'none';
+    if (trigA) trigA.classList.toggle('active', !isOpen);
+    if (trigB) trigB.classList.remove('active');
+    activeDropdownRole = isOpen ? null : 'A';
+    if (!isOpen) {
+      setTimeout(() => {
+        const s = document.getElementById('agentASearch');
+        if (s) { s.value = ''; filterCustomOptions('A', ''); s.focus(); }
+      }, 50);
+    }
+  } else {
+    const isOpen = (menuB && menuB.style.display === 'block');
+    if (menuB) menuB.style.display = isOpen ? 'none' : 'block';
+    if (menuA) menuA.style.display = 'none';
+    if (trigB) trigB.classList.toggle('active', !isOpen);
+    if (trigA) trigA.classList.remove('active');
+    activeDropdownRole = isOpen ? null : 'B';
+    if (!isOpen) {
+      setTimeout(() => {
+        const s = document.getElementById('agentBSearch');
+        if (s) { s.value = ''; filterCustomOptions('B', ''); s.focus(); }
+      }, 50);
+    }
+  }
+}
+
+function filterCustomOptions(role, query) {
+  const q = (query || '').trim().toLowerCase();
+  const container = document.getElementById(role === 'A' ? 'agentAOptions' : 'agentBOptions');
+  if (!container) return;
+  const options = container.querySelectorAll('.custom-select-option');
+  options.forEach(opt => {
+    const searchTarget = opt.getAttribute('data-search') || opt.getAttribute('data-name') || '';
+    if (!q || searchTarget.indexOf(q) !== -1) {
+      opt.style.display = 'block';
+    } else {
+      opt.style.display = 'none';
+    }
+  });
+}
+
+function selectCustomAgent(role, id, name, code, recH, pct, gender, avail) {
+  const hiddenInput = document.getElementById(role === 'A' ? 'customAgentAInput' : 'customAgentBInput');
+  const labelEl = document.getElementById(role === 'A' ? 'agentALabel' : 'agentBLabel');
+  const menu = document.getElementById(role === 'A' ? 'agentAMenu' : 'agentBMenu');
+  const trigger = document.getElementById(role === 'A' ? 'agentATrigger' : 'agentBTrigger');
+
+  if (hiddenInput) hiddenInput.value = id;
+  if (labelEl) {
+    labelEl.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;width:100%;font-size:13px;">` +
+      `<span><strong>${name}</strong> <span style="font-family:monospace;font-size:11px;color:var(--muted);background:rgba(0,0,0,0.05);padding:1px 4px;border-radius:2px;">[${code}]</span> <span class="muted-text">(${gender} · ${avail})</span></span>` +
+      `<span style="font-size:11.5px;font-weight:600;color:var(--text);">${recH} / 15 h</span>` +
+      `</div>`;
+    labelEl.style.color = 'var(--text)';
+  }
+
+  const container = document.getElementById(role === 'A' ? 'agentAOptions' : 'agentBOptions');
+  if (container) {
+    container.querySelectorAll('.custom-select-option').forEach(opt => {
+      if (parseInt(opt.getAttribute('data-id')) === id) {
+        opt.classList.add('selected');
+      } else {
+        opt.classList.remove('selected');
+      }
+    });
+  }
+
+  if (menu) menu.style.display = 'none';
+  if (trigger) trigger.classList.remove('active');
+  activeDropdownRole = null;
+
+  const err = document.getElementById('manualPairError');
+  if (err) err.style.display = 'none';
+}
+
+function validateManualPairForm(e) {
+  const aId = document.getElementById('customAgentAInput') ? document.getElementById('customAgentAInput').value : '';
+  const bId = document.getElementById('customAgentBInput') ? document.getElementById('customAgentBInput').value : '';
+  const err = document.getElementById('manualPairError');
+
+  if (!aId || !bId) {
+    if (err) {
+      err.textContent = 'Please select both Agent A and Agent B.';
+      err.style.display = 'block';
+    }
+    e.preventDefault();
+    return false;
+  }
+  if (aId === bId) {
+    if (err) {
+      err.textContent = 'Agent A and Agent B cannot be the same person. Please pick two different agents.';
+      err.style.display = 'block';
+    }
+    e.preventDefault();
+    return false;
+  }
+  return true;
+}
+
+function onPairManualModalOverlayClick(e) {
+  if (e.target.id === 'pairManualModal') {
+    closePairManualModal();
+  }
+}
+
+// Global click listener to close dropdowns when clicking outside
+document.addEventListener('click', function(e) {
+  const menuA = document.getElementById('agentAMenu');
+  const menuB = document.getElementById('agentBMenu');
+  const trigA = document.getElementById('agentATrigger');
+  const trigB = document.getElementById('agentBTrigger');
+
+  if (menuA && !menuA.contains(e.target) && trigA && !trigA.contains(e.target)) {
+    menuA.style.display = 'none';
+    trigA.classList.remove('active');
+  }
+  if (menuB && !menuB.contains(e.target) && trigB && !trigB.contains(e.target)) {
+    menuB.style.display = 'none';
+    trigB.classList.remove('active');
+  }
+});
+
+// Pair Scripts Modal Logic
+let currentPairScriptsId = null;
+window.currentPairScriptsList = [];
+
+async function openPairScriptsModal(pid) {
+  currentPairScriptsId = pid;
+  const modal = document.getElementById('pairScriptsModal');
+  const notice = document.getElementById('pairScriptsNotice');
+  if (notice) notice.style.display = 'none';
+
+  document.getElementById('pairScriptsModalTitle').textContent = `Assigned Scripts - Pair #${pid}`;
+  document.getElementById('pairScriptsModalSubtitle').textContent = 'Loading statistics and assigned scripts...';
+  document.getElementById('pairScriptsTableBody').innerHTML = '<tr><td colspan="7" class="muted-text" style="text-align:center;padding:24px;">Loading scripts...</td></tr>';
+  modal.classList.add('active');
+
+  try {
+    const res = await fetch(`/admin/pairs/${pid}/scripts`);
+    if (!res.ok) throw new Error('Failed to load pair scripts');
+    const data = await res.json();
+    renderPairScriptsModal(data);
+  } catch (err) {
+    document.getElementById('pairScriptsTableBody').innerHTML = `<tr><td colspan="7" style="text-align:center;color:#D64545;padding:20px;">Error: ${err.message}</td></tr>`;
+  }
+}
+
+function renderPairScriptsModal(data) {
+  window.currentPairScriptsList = data.scripts || [];
+  document.getElementById('pairScriptsModalTitle').textContent = `Assigned Scripts — ${data.pair_name}`;
+  document.getElementById('pairScriptsModalSubtitle').textContent = `Pair #${data.pair_id} · Language: ${data.lang_name}`;
+
+  // Partner A details
+  const pA = document.getElementById('psPartnerA');
+  if (pA) {
+    pA.textContent = data.name_a || '-';
+    pA.setAttribute('data-hover-agent', JSON.stringify({
+      name: data.name_a, role: 'Agent', phone: data.phone_a, gender: data.gender_a, language: data.lang_name, availability: data.avail_a, partner: data.name_b, status: 'Paired'
+    }));
+    pA.className = 'hover-trigger';
+  }
+  const phA = document.getElementById('psPhoneA');
+  if (phA) phA.textContent = `📞 ${data.phone_a || '-'}`;
+
+  // Partner B details
+  const pB = document.getElementById('psPartnerB');
+  if (pB) {
+    pB.textContent = data.name_b || '-';
+    pB.setAttribute('data-hover-agent', JSON.stringify({
+      name: data.name_b, role: 'Agent', phone: data.phone_b, gender: data.gender_b, language: data.lang_name, availability: data.avail_b, partner: data.name_a, status: 'Paired'
+    }));
+    pB.className = 'hover-trigger';
+  }
+  const phB = document.getElementById('psPhoneB');
+  if (phB) phB.textContent = `📞 ${data.phone_b || '-'}`;
+
+  // Language & availability
+  const la = document.getElementById('psLangAvail');
+  if (la) la.textContent = `${data.lang_name} · ${data.availability || 'All day'}`;
+
+  // Status Badge
+  const badge = document.getElementById('psPairStatusBadge');
+  if (badge) {
+    const isLimit = data.recorded_h >= 7.5;
+    badge.textContent = isLimit ? 'Limit reached' : (data.pair_status || 'Active');
+    badge.className = `status-badge ${isLimit ? 'status-limit' : 'status-available'}`;
+  }
+
+  // Recorded hours and progress bar
+  const rl = document.getElementById('psRecordedLimit');
+  if (rl) rl.textContent = `${data.recorded_h} / 7.5 h`;
+
+  const bar = document.getElementById('psProgressBar');
+  if (bar) {
+    const pct = Math.min(100, Math.round((data.recorded_h / 7.5) * 100));
+    bar.style.width = `${pct}%`;
+    bar.className = `progress-bar-fill ${data.recorded_h >= 7.5 ? 'red' : (data.recorded_h >= 6.0 ? 'amber' : 'teal')}`;
+  }
+
+  // KPIs
+  document.getElementById('psKpiAssigned').textContent = data.assigned_count;
+  document.getElementById('psKpiPending').textContent = data.pending_count;
+  document.getElementById('psKpiCompleted').textContent = data.completed_count;
+  document.getElementById('psKpiRecorded').textContent = `${data.recorded_h} / 7.5 h`;
+  document.getElementById('psKpiAccepted').textContent = `${data.accepted_h} h`;
+
+  document.getElementById('pairScriptsCountLabel').textContent = `Scripts List (${data.scripts ? data.scripts.length : 0})`;
+
+  const releasableCount = (data.scripts || []).filter(s => s.can_release).length;
+  const relAllBtn = document.getElementById('btnReleaseAllPairScripts');
+  if (relAllBtn) {
+    relAllBtn.disabled = (releasableCount === 0);
+    relAllBtn.style.opacity = (releasableCount === 0) ? '0.5' : '1';
+    relAllBtn.textContent = `Release All Open Scripts (${releasableCount})`;
+  }
+
+  const tbody = document.getElementById('pairScriptsTableBody');
+  if (!data.scripts || data.scripts.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="7" class="muted-text" style="text-align:center;padding:24px;">No scripts currently assigned to this pair.</td></tr>';
+    return;
+  }
+
+  let html = '';
+  data.scripts.forEach((s, idx) => {
+    let badgeClass = 'status-available';
+    let badgeLabel = s.status || 'Available';
+    if (badgeLabel === 'APPROVED' || badgeLabel === 'ACCEPTED') {
+      badgeClass = 'status-accepted';
+      badgeLabel = 'Accepted';
+    } else if (badgeLabel === 'REJECTED') {
+      badgeClass = 'status-rejected';
+      badgeLabel = 'Rejected';
+    } else if (badgeLabel === 'SUBMITTED' || badgeLabel === 'COMPLETED') {
+      badgeClass = 'status-submitted';
+      badgeLabel = 'Submitted';
+    } else if (badgeLabel === 'ASSIGNED') {
+      badgeClass = 'status-assigned';
+      badgeLabel = 'Assigned';
+    } else if (badgeLabel === 'IN_SESSION') {
+      badgeClass = 'status-assigned';
+      badgeLabel = 'In Session';
+    } else if (badgeLabel === 'PENDING') {
+      if (s.time_taken && s.time_taken !== '-') {
+        badgeClass = 'status-submitted';
+        badgeLabel = 'Submitted';
+      } else {
+        badgeClass = 'status-assigned';
+        badgeLabel = 'Assigned';
+      }
+    }
+
+    const scriptJson = JSON.stringify({
+      code: s.code, domain: s.domain, subdomain: s.subdomain, specialisation: s.specialisation || '-', status: badgeLabel, pair: data.pair_name
+    }).replace(/"/g, '&quot;');
+
+    html += `<tr>
+      <td class="muted-text" style="font-size:12px;">${idx + 1}</td>
+      <td style="font-weight:700;">
+        <a href="javascript:void(0)" onclick="viewPairScriptDialogue(${idx})" 
+           class="hover-trigger" data-hover-script="${scriptJson}"
+           style="color:var(--primary);text-decoration:none;" title="Click to read script dialogue">
+          ${s.code} ↗
+        </a>
+      </td>
+      <td style="font-size:12.5px;color:var(--text);">${s.domain} &gt; ${s.subdomain}</td>
+      <td><span class="status-badge ${badgeClass}">${badgeLabel}</span></td>
+      <td style="font-weight:600;">${s.time_taken}</td>
+      <td style="font-size:12px;color:var(--muted);">${s.submitted_at || '-'}</td>
+      <td style="text-align:right;">
+        ${s.can_release 
+          ? `<button type="button" class="btn btn-secondary btn-sm" style="height:24px;padding:0 8px;font-size:12px;color:#D64545;border-color:#F5C6CB;" onclick="releaseSingleScript(${data.pair_id}, ${s.assignment_id}, '${s.code}')">Release</button>`
+          : `<span class="muted-text" style="font-size:12px;">Locked</span>`
+        }
+      </td>
+    </tr>`;
+  });
+  tbody.innerHTML = html;
+}
+
+function viewPairScriptDialogue(idx) {
+  if (!window.currentPairScriptsList || !window.currentPairScriptsList[idx]) return;
+  const s = window.currentPairScriptsList[idx];
+  openScriptModal(s.code, s.taxonomy, s.time_taken, s.status, s.dialogue);
+}
+
+async function releaseSingleScript(pid, aid, code) {
+  if (!confirm(`Are you sure you want to release script ${code || '#' + aid} back to the available pool?`)) {
+    return;
+  }
+  try {
+    const res = await fetch(`/admin/pairs/${pid}/release/${aid}`, { method: 'POST' });
+    const result = await res.json().catch(() => ({}));
+    if (!res.ok) { showPairScriptsNotice(result.detail || ('Release failed (' + res.status + ')'), 'error'); return; }
+    showPairScriptsNotice(result.message || 'Script released successfully.', 'success');
+    
+    // Refresh modal contents
+    const ref = await fetch(`/admin/pairs/${pid}/scripts`);
+    const refreshedData = await ref.json();
+    renderPairScriptsModal(refreshedData);
+
+    // Update main table buttons if visible
+    document.querySelectorAll(`button[onclick="openPairScriptsModal(${pid})"]`).forEach(btn => {
+      btn.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg> View Scripts (${refreshedData.assigned_count})`;
+    });
+  } catch (err) {
+    showPairScriptsNotice(`Failed to release script: ${err.message}`, 'error');
+  }
+}
+
+async function releaseAllPairScripts() {
+  if (!currentPairScriptsId) return;
+  if (!confirm(`Are you sure you want to release ALL open scripts for this pair back to the available pool?`)) {
+    return;
+  }
+  try {
+    const res = await fetch(`/admin/pairs/${currentPairScriptsId}/release_all`, { method: 'POST' });
+    const result = await res.json().catch(() => ({}));
+    if (!res.ok) { showPairScriptsNotice(result.detail || ('Release failed (' + res.status + ')'), 'error'); return; }
+    showPairScriptsNotice(result.message || 'Released scripts successfully.', 'success');
+    
+    // Refresh modal contents
+    const ref = await fetch(`/admin/pairs/${currentPairScriptsId}/scripts`);
+    const refreshedData = await ref.json();
+    renderPairScriptsModal(refreshedData);
+
+    // Update main table buttons if visible
+    document.querySelectorAll(`button[onclick="openPairScriptsModal(${currentPairScriptsId})"]`).forEach(btn => {
+      btn.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg> View Scripts (${refreshedData.assigned_count})`;
+    });
+  } catch (err) {
+    showPairScriptsNotice(`Failed to release all scripts: ${err.message}`, 'error');
+  }
+}
+
+function showPairScriptsNotice(msg, type) {
+  const notice = document.getElementById('pairScriptsNotice');
+  if (!notice) return;
+  notice.textContent = msg;
+  notice.style.display = 'block';
+  if (type === 'error') {
+    notice.style.background = '#FDE8E8';
+    notice.style.color = '#9B1C1C';
+    notice.style.border = '1px solid #F8B4B4';
+  } else {
+    notice.style.background = '#DEF7EC';
+    notice.style.color = '#03543F';
+    notice.style.border = '1px solid #BCF0DA';
+  }
+}
+
+function closePairScriptsModal() {
+  const m = document.getElementById('pairScriptsModal');
+  if (m) m.classList.remove('active');
+  currentPairScriptsId = null;
+}
+
+function onPairScriptsOverlayClick(e) {
+  if (e.target.id === 'pairScriptsModal') {
+    closePairScriptsModal();
+  }
+}
+
+function openBulkPairModal() { document.getElementById('bulkPairModal').classList.add('active'); }
+function closeBulkPairModal() { document.getElementById('bulkPairModal').classList.remove('active'); }
+
+function toggleSelectAllReports(masterCb) {
+  const cbs = document.querySelectorAll('.report-select-cb');
+  cbs.forEach(cb => cb.checked = masterCb.checked);
+}
+
+function reviewSingle(id, verdict) {
+  const rId = document.getElementById('reviewSingleReportId');
+  if (rId) rId.value = id;
+  const aId = document.getElementById('reviewSingleAssignmentId');
+  if (aId) aId.value = id;
+  document.getElementById('reviewSingleVerdict').value = verdict;
+  const title = document.getElementById('reviewSingleTitle');
+  const btn = document.getElementById('reviewSingleSubmitBtn');
+  if (verdict === 'accept') {
+    title.textContent = 'Accept Submission #' + id;
+    btn.className = 'btn btn-primary';
+    btn.textContent = 'Confirm Accept';
+  } else {
+    title.textContent = 'Reject Submission #' + id;
+    btn.className = 'btn btn-danger';
+    btn.textContent = 'Confirm Reject';
+  }
+  document.getElementById('reviewSingleModal').classList.add('active');
+}
+
+function closeReviewModal() {
+  document.getElementById('reviewSingleModal').classList.remove('active');
+}
+
+function openProofPhotoModal(imgUrl, scriptCode, agents, timeTaken) {
+  const modal = document.getElementById('proofPhotoModal');
+  const img = document.getElementById('proofPhotoModalImg');
+  const title = document.getElementById('proofPhotoModalTitle');
+  const subtitle = document.getElementById('proofPhotoModalSubtitle');
+  const fullLink = document.getElementById('proofPhotoOpenNewTab');
+  if (!modal || !img) return;
+
+  img.src = imgUrl;
+  if (fullLink) fullLink.href = imgUrl;
+  if (title) title.textContent = scriptCode ? `Proof Photo — Script ${scriptCode}` : 'Submission Proof Photo';
+  if (subtitle) subtitle.textContent = `${agents || 'Participants'} | Time: ${timeTaken || '-'}`;
+  modal.classList.add('active');
+}
+
+function closeProofPhotoModal() {
+  const modal = document.getElementById('proofPhotoModal');
+  const img = document.getElementById('proofPhotoModalImg');
+  if (modal) modal.classList.remove('active');
+  if (img) img.src = '';
+}
+
+function openScriptModal(code, taxonomy, timeTaken, status, dialogue) {
+  document.getElementById('modalScriptCode').textContent = code;
+  document.getElementById('modalScriptTaxonomy').textContent = taxonomy;
+
+  const statusEl = document.getElementById('modalScriptStatus');
+  const isAcc = (status === 'APPROVED' || status === 'ACCEPTED');
+  const isRej = (status === 'REJECTED');
+  const isSub = (status === 'SUBMITTED' || status === 'COMPLETED');
+  const isAsg = (status === 'ASSIGNED');
+  
+  if (isAcc) {
+    statusEl.textContent = 'Accepted';
+    statusEl.className = 'status-badge status-accepted';
+  } else if (isRej) {
+    statusEl.textContent = 'Rejected';
+    statusEl.className = 'status-badge status-rejected';
+  } else if (isSub) {
+    statusEl.textContent = 'Submitted';
+    statusEl.className = 'status-badge status-submitted';
+  } else if (isAsg) {
+    statusEl.textContent = 'Assigned';
+    statusEl.className = 'status-badge status-assigned';
+  } else {
+    statusEl.textContent = 'Available';
+    statusEl.className = 'status-badge status-available';
+  }
+
+  const contentEl = document.getElementById('modalScriptContent');
+  contentEl.textContent = dialogue || 'No dialogue content available for this script.';
+  contentEl.scrollTop = 0;
+  document.getElementById('scriptDialogueModal').classList.add('active');
+}
+
+function openScriptByCode(code) {
+  const item = (window.SCRIPTS_CACHE && window.SCRIPTS_CACHE[code]) || {};
+  openScriptModal(code, item.taxonomy || '', item.pair_label || '-', item.status || 'AVAILABLE', item.dialogue || '');
+}
+
+function openReportScript(id) {
+  const item = (window.REPORTS_CACHE && window.REPORTS_CACHE[id]) || {};
+  openScriptModal(item.code || '', item.taxonomy || '', item.time_taken || '-', item.status || '', item.dialogue || '');
+}
+
+function closeScriptModal() {
+  const m = document.getElementById('scriptDialogueModal');
+  if (m) m.classList.remove('active');
+}
+
+function onScriptModalOverlayClick(e) {
+  if (e.target.id === 'scriptDialogueModal') {
+    closeScriptModal();
+  }
+}
+
+// --- Edit Agent Modal Logic ---
+function editAgentModal(id, name, phone, email, gender, availability) {
+  const form = document.getElementById('editAgentForm');
+  if (form) form.action = `/admin/agents/edit/${id}`;
+  const n = document.getElementById('editAgName');
+  if (n) n.value = name || '';
+  const p = document.getElementById('editAgPhone');
+  if (p) p.value = phone || '';
+  const em = document.getElementById('editAgEmail');
+  if (em) em.value = (email && email !== '-') ? email : '';
+  const g = document.getElementById('editAgGender');
+  if (g) g.value = gender || 'M';
+  const av = document.getElementById('editAgAvail');
+  if (av) av.value = availability || 'All day';
+  const m = document.getElementById('editAgentModal');
+  if (m) m.classList.add('active');
+}
+
+function closeEditAgentModal() {
+  const m = document.getElementById('editAgentModal');
+  if (m) m.classList.remove('active');
+}
+
+// --- 3-Dots Floating Action Menu Logic ---
+let currentAgentMenuData = null;
+let currentAgentMenuTrigger = null;
+
+function toggleAgentActionMenu(btn, e, id, name, phone, email, gender, avail, isActive) {
+  if (e) {
+    e.stopPropagation();
+    e.preventDefault();
+  }
+  const menu = document.getElementById('agentFloatingMenu');
+  if (!menu) return;
+
+  if (menu.style.display === 'block' && currentAgentMenuTrigger === btn) {
+    closeAgentActionMenu();
+    return;
+  }
+
+  if (id === undefined && btn && btn.dataset) {
+    id = parseInt(btn.dataset.id, 10);
+    name = btn.dataset.name || '';
+    phone = btn.dataset.phone || '';
+    email = btn.dataset.email || '';
+    gender = btn.dataset.gender || 'M';
+    avail = btn.dataset.avail || 'All day';
+    isActive = parseInt(btn.dataset.active || '1', 10);
+  }
+
+  currentAgentMenuTrigger = btn;
+  currentAgentMenuData = { id, name, phone, email, gender, avail, isActive };
+
+  const toggleLabel = document.getElementById('fMenuToggleLabel');
+  if (toggleLabel) {
+    toggleLabel.textContent = isActive ? 'Deactivate' : 'Activate';
+  }
+
+  menu.style.visibility = 'hidden';
+  menu.style.display = 'block';
+
+  const rect = btn.getBoundingClientRect();
+  const menuWidth = menu.offsetWidth || 165;
+  const menuHeight = menu.offsetHeight || 130;
+
+  let left = rect.right - menuWidth;
+  if (left < 10) left = 10;
+  if (left + menuWidth > window.innerWidth - 10) {
+    left = window.innerWidth - menuWidth - 10;
+  }
+
+  let top = rect.bottom + 4;
+  if (top + menuHeight > window.innerHeight - 10 && rect.top - menuHeight - 4 > 10) {
+    top = rect.top - menuHeight - 4;
+  }
+
+  menu.style.left = `${Math.round(left)}px`;
+  menu.style.top = `${Math.round(top)}px`;
+  menu.style.visibility = 'visible';
+  btn.classList.add('active');
+}
+
+function closeAgentActionMenu() {
+  const menu = document.getElementById('agentFloatingMenu');
+  if (menu) menu.style.display = 'none';
+  if (currentAgentMenuTrigger) {
+    currentAgentMenuTrigger.classList.remove('active');
+    currentAgentMenuTrigger = null;
+  }
+  currentAgentMenuData = null;
+}
+
+function handleAgentAction(action) {
+  if (!currentAgentMenuData) return;
+  const d = currentAgentMenuData;
+  closeAgentActionMenu();
+
+  if (action === 'send_code') {
+    const form = document.getElementById('agentSendCodeForm');
+    if (form) {
+      form.action = `/admin/agents/send_code/${d.id}`;
+      form.submit();
+    }
+  } else if (action === 'details') {
+    window.location.href = `/admin/agent/${d.id}`;
+  } else if (action === 'edit') {
+    editAgentModal(d.id, d.name, d.phone, d.email, d.gender, d.avail);
+  } else if (action === 'toggle') {
+    const form = document.getElementById('agentToggleForm');
+    if (form) {
+      form.action = `/admin/agents/toggle/${d.id}`;
+      form.submit();
+    }
+  } else if (action === 'delete') {
+    openDeleteModal(
+      `/admin/agents/delete/${d.id}`,
+      `Delete Agent ${d.name}`,
+      'Are you sure you want to delete this agent? This requires a mandatory reason.'
+    );
+  }
+}
+
+document.addEventListener('click', function(e) {
+  const menu = document.getElementById('agentFloatingMenu');
+  if (menu && menu.style.display === 'block' && !menu.contains(e.target)) {
+    closeAgentActionMenu();
+  }
+});
+window.addEventListener('resize', closeAgentActionMenu);
+window.addEventListener('scroll', closeAgentActionMenu, true);
+
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') {
+    closeScriptModal();
+    closePairScriptsModal();
+    closeAddAgentModal();
+    closeEditAgentModal();
+    closeBulkAgentModal();
+    closePairManualModal();
+    closeBulkPairModal();
+    closeReviewModal();
+    closeProofPhotoModal();
+    closeAgentActionMenu();
+  }
+});
+</script>
+
+{% if active_tab == 'scripts' %}
+<div id="sfUpModal" class="kpi-modal" aria-hidden="true">
+  <div class="kpi-modal-box" role="dialog" aria-modal="true" aria-labelledby="sfUpTitle">
+    <div class="kpi-modal-head">
+      <div><span id="sfUpTitle" style="font-size:16px;font-weight:700;">Upload scripts</span><span id="sfUpSub" style="font-size:12px;color:var(--muted);margin-left:8px;"></span></div>
+      <button type="button" class="btn btn-secondary btn-sm" id="sfUpClose">Close ✕</button>
+    </div>
+    <div style="padding:12px 18px;border-bottom:1px solid var(--border);display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+      <button type="button" class="btn btn-primary btn-sm" id="sfUpGo">Start upload</button>
+      <div style="flex:1;min-width:160px;height:8px;background:var(--border);border-radius:4px;overflow:hidden;"><div id="sfUpBar" style="height:100%;width:0;background:var(--primary);transition:width .2s;"></div></div>
+      <span id="sfUpStat" style="font-size:12.5px;color:var(--muted);"></span>
+    </div>
+    <div class="kpi-modal-body">
+      <table class="data-table"><thead><tr><th>#</th><th>File</th><th>Result</th><th>Code</th><th>Language</th><th>Taxonomy</th><th>Drive</th><th>Note</th></tr></thead><tbody id="sfUpBody"></tbody></table>
+    </div>
+  </div>
+</div>
+<script>
+window.sfUpload = (function(){
+  var LANG = {{ (lang_param|string)|tojson }}, CSRF = {{ csrf|tojson }}, IS_SUP = {{ ('true' if user.role in ('lead','supervisor') else 'false') }};
+  var BATCH = 20, queue = [], running = false;
+  var $ = function(i){ return document.getElementById(i); };
+  var esc = function(x){ return String(x == null ? '' : x).replace(/[&<>"]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); };
+  function open(){ $('sfUpModal').classList.add('open'); }
+  function close(){ if (running && !confirm('Upload is still running. Close anyway? (already-uploaded files stay imported)')) return; $('sfUpModal').classList.remove('open'); }
+  function pick(kind){
+    if (IS_SUP && !/^\d+$/.test(LANG)) { alert('Pick one language in the sidebar first, then upload.'); return; }
+    $(kind === 'folder' ? 'sfFolderPick' : 'sfFilesPick').click();
+  }
+  function load(list){
+    var all = Array.prototype.slice.call(list), ok = [], skipped = 0;
+    all.forEach(function(f){
+      var n = f.name.toLowerCase();
+      if (/\.(txt|md)$/.test(n) && n.charAt(0) !== '.') ok.push(f); else skipped++;
+    });
+    queue = ok; $('sfUpBody').innerHTML = ''; $('sfUpBar').style.width = '0';
+    $('sfUpSub').textContent = ok.length + ' script file' + (ok.length === 1 ? '' : 's') + ' found' + (skipped ? ', ' + skipped + ' other file(s) ignored' : '');
+    $('sfUpStat').textContent = ok.length ? 'Ready. Language in this view: ' + (/^\d+$/.test(LANG) ? 'selected' : 'detected from each filename') : 'Nothing to upload.';
+    $('sfUpTitle').textContent = 'Upload scripts'; $('sfUpGo').style.display = '';
+    $('sfUpGo').disabled = !ok.length; $('sfUpGo').textContent = 'Start upload'; open();
+  }
+  function addRow(n, r){
+    var cls = r.status === 'imported' ? 'color:var(--st-accepted)' : (r.status === 'error' ? 'color:var(--st-rejected,#c00)' : 'color:var(--muted)');
+    var tr = document.createElement('tr');
+    tr.innerHTML = '<td>' + n + '</td><td>' + esc(r.file) + '</td><td style="' + cls + ';font-weight:600">' + esc(r.status) + '</td><td>' + esc(r.code) + '</td><td>' + esc(r.language) + '</td><td>' + esc(r.taxonomy) + '</td><td>' + esc(r.drive) + '</td><td style="white-space:normal">' + esc(r.reason) + '</td>';
+    $('sfUpBody').appendChild(tr);
+  }
+  async function go(){
+    if (running) return; running = true; $('sfUpGo').disabled = true;
+    var done = 0, imp = 0, skip = 0, err = 0, dfail = 0, rows = 0;
+    for (var i = 0; i < queue.length; i += BATCH) {
+      var fd = new FormData(); fd.append('csrf', CSRF); fd.append('lang', LANG);
+      queue.slice(i, i + BATCH).forEach(function(f){ fd.append('files', f, f.webkitRelativePath || f.name); });
+      try {
+        var resp = await fetch('/admin/scripts/upload_batch', {method:'POST', body:fd, credentials:'same-origin'});
+        var d = await resp.json();
+        if (!resp.ok) { addRow(++rows, {file:'(batch ' + (i / BATCH + 1) + ')', status:'error', reason:d.error || ('HTTP ' + resp.status)}); err += Math.min(BATCH, queue.length - i); }
+        else d.results.forEach(function(r){ addRow(++rows, r); if (r.status === 'imported') imp++; else if (r.status === 'skipped') skip++; else err++; if (r.drive === 'failed') dfail++; });
+      } catch (e) { addRow(++rows, {file:'(batch ' + (i / BATCH + 1) + ')', status:'error', reason:'Network error: ' + e.message}); err += Math.min(BATCH, queue.length - i); }
+      done = Math.min(queue.length, i + BATCH);
+      $('sfUpBar').style.width = Math.round(done / queue.length * 100) + '%';
+      $('sfUpStat').textContent = done + ' / ' + queue.length + ' processed';
+    }
+    running = false;
+    $('sfUpStat').textContent = 'Done: ' + imp + ' imported, ' + skip + ' skipped (duplicates / not matching language), ' + err + ' failed' + (dfail ? ', ' + dfail + ' Drive uploads failed' : '');
+    $('sfUpGo').textContent = 'Reload page to see scripts'; $('sfUpGo').disabled = false; $('sfUpGo').onclick = function(){ location.reload(); };
+  }
+  async function drive(ev){
+    ev.preventDefault();
+    var url = ($('sfDriveUrl').value || '').trim();
+    if (!url) return false;
+    if (IS_SUP && !/^\d+$/.test(LANG)) { alert('Pick one language in the sidebar first, then import.'); return false; }
+    if (running) return false;
+    running = true;
+    $('sfUpTitle').textContent = 'Import from Drive'; $('sfUpSub').textContent = '';
+    $('sfUpBody').innerHTML = ''; $('sfUpBar').style.width = '30%'; $('sfUpGo').style.display = 'none';
+    $('sfUpStat').textContent = 'Reading Google Drive and importing... large folders can take a minute.';
+    open();
+    var fd = new FormData(); fd.append('csrf', CSRF); fd.append('lang', LANG); fd.append('drive_url', url);
+    var finish = function(msg){
+      running = false; $('sfUpBar').style.width = '100%'; $('sfUpStat').textContent = msg;
+      $('sfUpGo').style.display = ''; $('sfUpGo').disabled = false; $('sfUpGo').textContent = 'Reload page to see scripts';
+      $('sfUpGo').onclick = function(){ location.reload(); };
+    };
+    try {
+      var resp = await fetch('/admin/scripts/import_drive', {method:'POST', body:fd, credentials:'same-origin'});
+      var d = await resp.json();
+      if (!resp.ok) { addRow(1, {file:url, status:'error', reason:d.error || ('HTTP ' + resp.status)}); finish('Import failed: ' + (d.error || ('HTTP ' + resp.status))); return false; }
+      d.results.forEach(function(r, i){ addRow(i + 1, r); });
+      var s = d.summary;
+      finish('Done (' + (d.mode === 'api' ? 'Drive API' : 'public link') + '): ' + s.imported + ' imported, ' + s.skipped + ' skipped (duplicates / other language / not a script), ' + s.error + ' failed.' + (d.truncated ? ' ' + d.truncated : ''));
+    } catch (e) { addRow(1, {file:url, status:'error', reason:'Network error: ' + e.message}); finish('Import failed: ' + e.message); }
+    return false;
+  }
+  document.addEventListener('DOMContentLoaded', function(){
+    $('sfFolderPick').addEventListener('change', function(){ load(this.files); this.value = ''; });
+    $('sfFilesPick').addEventListener('change', function(){ load(this.files); this.value = ''; });
+    $('sfUpGo').addEventListener('click', function(){ if (!running && $('sfUpGo').textContent === 'Start upload') go(); });
+    $('sfUpClose').addEventListener('click', close);
+  });
+  return {pick: pick, drive: drive};
+})();
+</script>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,159 @@
+{% extends "base.html" %}
+{% block title %}Supervisors · ScriptFlow{% endblock %}
+{% block pagetitle %}Supervisors{% endblock %}
+
+{% block content %}
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;gap:8px;flex-wrap:wrap;">
+  <div>
+    <h1 class="page-title" style="margin:0;">Supervisors</h1>
+    <span class="muted-text">Manage language supervisors and access credentials</span>
+  </div>
+  <button type="button" class="btn btn-primary" onclick="openAddSupModal()">+ Add Supervisor</button>
+</div>
+
+<div class="table-container">
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>Language</th>
+        <th>Phone</th>
+        <th>Email</th>
+        <th>Access Code</th>
+        <th>Status</th>
+        <th style="text-align:right;">Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for s in supervisors %}
+      <tr>
+        <td style="font-weight:600;">{{ s.name }}</td>
+        <td>{{ s.lang_names }}</td>
+        <td>{{ s.phone or '-' }}</td>
+        <td>{{ s.email or '-' }}</td>
+        <td>
+          <span style="font-family:monospace;font-weight:700;">{{ s.code }}</span>
+          <button type="button" class="btn btn-secondary btn-sm" style="height:22px;padding:0 4px;font-size:11px;" onclick="copyToClipboard('{{ s.code }}', this)" title="Copy Code">copy</button>
+        </td>
+        <td>
+          {% if s.active %}
+            <span class="status-badge status-available">Active</span>
+          {% else %}
+            <span class="status-badge status-rejected">Inactive</span>
+          {% endif %}
+        </td>
+        <td style="text-align:right;white-space:nowrap;">
+          <form method="post" action="/admin/supervisors/toggle/{{ s.id }}" style="display:inline-block;margin:0;">
+            <input type="hidden" name="csrf" value="{{ csrf }}">
+            <button type="submit" class="btn btn-secondary btn-sm" style="height:26px;padding:0 6px;">
+              {% if s.active %}Deactivate{% else %}Activate{% endif %}
+            </button>
+          </form>
+          <button type="button" class="btn btn-secondary btn-sm" style="height:26px;padding:0 6px;" onclick="openSupLangs({{ s.id }}, '{{ s.name }}', {{ s.lang_ids|tojson }})">Languages</button>
+          {% if s.active %}<a class="btn btn-secondary btn-sm" style="height:26px;padding:0 6px;line-height:26px;" href="/admin/supervisors/login_as/{{ s.id }}" title="Open this supervisor's view">View</a>{% endif %}
+          <button type="button" class="btn btn-secondary btn-sm" style="height:26px;padding:0 6px;" onclick="editSupModal({{ s.id }}, '{{ s.name }}', '{{ s.phone }}', '{{ s.email }}', {{ s.language_id or 0 }})">Edit</button>
+          <button type="button" class="btn btn-danger btn-sm" style="height:26px;padding:0 6px;" onclick="openDeleteModal('/admin/supervisors/delete/{{ s.id }}', 'Delete Supervisor {{ s.name }}', 'Deleting a supervisor requires a mandatory reason.')">Delete</button>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="7" class="muted-text" style="text-align:center;">No supervisors found. Click "Add Supervisor" to create one.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<!-- Add Supervisor Modal (AD7) -->
+<div id="addSupModal" class="modal-overlay">
+  <div class="modal-box">
+    <div class="modal-title">Add Supervisor</div>
+    <form method="post" action="/admin/supervisors/add">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <div class="form-group">
+        <label class="form-label" for="supName">Supervisor Name *</label>
+        <input type="text" id="supName" name="name" class="form-input" required placeholder="e.g. Kannada Lead">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Assigned Languages * <span class="muted-text">(one or more)</span></label>
+        <div style="display:flex;flex-wrap:wrap;gap:6px 14px;">
+          {% for l in langs %}
+            <label style="display:inline-flex;align-items:center;gap:5px;font-size:13px;"><input type="checkbox" name="language_ids" value="{{ l.id }}" {% if loop.first %}checked{% endif %}> {{ l.name }}</label>
+          {% endfor %}
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="supPhone">Phone</label>
+        <input type="text" id="supPhone" name="phone" class="form-input" placeholder="98XXXXXX01">
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="supEmail">Email</label>
+        <input type="email" id="supEmail" name="email" class="form-input" placeholder="lead@scriptflow.com">
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-secondary" onclick="closeAddSupModal()">Cancel</button>
+        <button type="submit" class="btn btn-primary">Create Supervisor</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div id="supLangModal" class="modal-overlay">
+  <div class="modal-box">
+    <div class="modal-title" id="supLangTitle">Supervisor languages</div>
+    <form method="post" id="supLangForm">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <div style="display:flex;flex-wrap:wrap;gap:6px 14px;margin:10px 0 16px;">
+        {% for l in langs %}
+          <label style="display:inline-flex;align-items:center;gap:5px;font-size:13px;"><input type="checkbox" name="language_ids" value="{{ l.id }}" class="sup-lang-cb"> {{ l.name }}</label>
+        {% endfor %}
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-secondary" onclick="document.getElementById('supLangModal').classList.remove('active')">Cancel</button>
+        <button type="submit" class="btn btn-primary">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+<!-- Edit Supervisor Modal -->
+<div id="editSupModal" class="modal-overlay">
+  <div class="modal-box">
+    <div class="modal-title">Edit Supervisor</div>
+    <form method="post" id="editSupForm">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <div class="form-group">
+        <label class="form-label" for="editSupName">Supervisor Name *</label>
+        <input type="text" id="editSupName" name="name" class="form-input" required>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="editSupPhone">Phone</label>
+        <input type="text" id="editSupPhone" name="phone" class="form-input">
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="editSupEmail">Email</label>
+        <input type="email" id="editSupEmail" name="email" class="form-input">
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-secondary" onclick="document.getElementById('editSupModal').classList.remove('active')">Cancel</button>
+        <button type="submit" class="btn btn-primary">Save Changes</button>
+      </div>
+    </form>
+  </div>
+</div>
+<script>
+function editSupModal(id, name, phone, email, language_id) {
+  var f = document.getElementById('editSupForm');
+  f.action = '/admin/supervisors/edit/' + id;
+  document.getElementById('editSupName').value = name || '';
+  document.getElementById('editSupPhone').value = (phone && phone !== 'None') ? phone : '';
+  document.getElementById('editSupEmail').value = (email && email !== 'None') ? email : '';
+  document.getElementById('editSupModal').classList.add('active');
+}
+function openSupLangs(id, name, ids) {
+  document.getElementById('supLangTitle').textContent = 'Languages for ' + name;
+  document.getElementById('supLangForm').action = '/admin/supervisors/languages/' + id;
+  document.querySelectorAll('.sup-lang-cb').forEach(function(cb){ cb.checked = ids.indexOf(parseInt(cb.value)) >= 0; });
+  document.getElementById('supLangModal').classList.add('active');
+}
+function openAddSupModal() { document.getElementById('addSupModal').classList.add('active'); }
+function closeAddSupModal() { document.getElementById('addSupModal').classList.remove('active'); }
+</script>
+{% endblock %}

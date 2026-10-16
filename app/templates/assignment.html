@@ -1,0 +1,203 @@
+{% extends "base.html" %}
+{% block title %}Record Script · {{ s.code }}{% endblock %}
+{% block mainclass %}wide full-script{% endblock %}
+{% block body %}
+<style>
+  .shell .side { display: none !important; }
+  .shell .main.full-script {
+    max-width: 900px !important;
+    width: 100% !important;
+    margin: 0 auto !important;
+    padding: 0.8rem 0.8rem 4rem 0.8rem !important;
+  }
+  .script-canvas {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 1.8rem 1.6rem;
+    font-size: calc(var(--fs, 1.15) * 1rem);
+    line-height: 1.85;
+    color: var(--ink);
+    white-space: pre-wrap;
+    word-break: break-word;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+    margin-bottom: 1.8rem;
+  }
+  .submission-box-card {
+    background: var(--card);
+    border: 2px solid var(--acc);
+    border-radius: 14px;
+    padding: 1.8rem 1.5rem;
+    box-shadow: 0 6px 20px rgba(29, 78, 216, 0.12);
+  }
+  .photo-preview-box {
+    margin-top: 0.8rem;
+    display: none;
+    text-align: center;
+  }
+  .photo-preview-box img {
+    max-height: 200px;
+    max-width: 100%;
+    border-radius: 8px;
+    border: 1px solid var(--line);
+    object-fit: contain;
+  }
+  @media (max-width: 768px) {
+    .script-canvas {
+      padding: 1.2rem 1rem;
+      font-size: calc(var(--fs, 1.05) * 1rem);
+    }
+    .submission-box-card {
+      padding: 1.2rem 1rem;
+    }
+  }
+</style>
+
+<div style="display:none;" aria-hidden="true">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <button id="ready-btn">I'm ready</button>
+  <div class="turn"></div>
+</div>
+
+<!-- Top Minimal Bar: Back, Code, Controls -->
+<div class="card" style="margin-bottom:1.2rem; padding:0.8rem 1.2rem">
+  <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.6rem">
+    <div style="display:flex; align-items:center; gap:0.8rem; flex-wrap:wrap">
+      <a href="/me" class="btn sm" style="font-weight:700">← Back to Dashboard</a>
+      <div>
+        <div style="display:flex; align-items:center; gap:0.5rem">
+          <h1 style="margin:0; font-size:1.35rem">{{ s.code }}</h1>
+          <span class="pill {{ 'ok' if a.status in ('COMPLETED','CONFIRMED') else ('warn' if a.status == 'IN_SESSION' else 'pri') }}">
+            {{ 'Confirmed' if a.status in ('COMPLETED','CONFIRMED') else ('Session running' if a.status == 'IN_SESSION' else 'Ready to Record') }}
+          </span>
+        </div>
+        <div class="small mute">
+          {{ s.domain }} · {{ s.subdomain }}{% if s.specialisation %} · {{ s.specialisation }}{% endif %}
+        </div>
+      </div>
+    </div>
+
+    <!-- Controls: Recorder Link, Copy, Font Size -->
+    <div style="display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap">
+      {% if client_url %}
+      <a href="{{ client_url }}" target="_blank" rel="noopener" class="btn sm"
+         style="background:#2563eb; color:#fff; border-color:#3b82f6; font-weight:700">
+        🎙️ Open Recorder ↗
+      </a>
+      {% endif %}
+      <button class="btn sm" type="button" onclick="copyScriptText()" id="copy-btn">📋 Copy</button>
+      <div style="display:inline-flex; gap:2px; align-items:center">
+        <button class="btn sm" type="button" onclick="adjustFont(-0.1)" title="Smaller text">A−</button>
+        <button class="btn sm" type="button" onclick="adjustFont(0.1)" title="Larger text">A+</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Script Reader Canvas -->
+<div class="script-canvas" id="script-text-container">{{ full_script_text }}</div>
+
+<!-- SUBMISSION BOXES: 1. Time Taken, 2. Photo of Successful Submission -->
+{% if a.status in ('COMPLETED', 'CONFIRMED') %}
+<div class="card" style="padding:1.8rem; background:rgba(16,185,129,0.08); border:2px solid var(--ok); border-radius:14px; text-align:center">
+  <div style="font-size:2.5rem; margin-bottom:0.3rem">✅</div>
+  <h2 style="color:var(--ok); margin:0 0 0.3rem">Recording Submitted!</h2>
+  <div style="font-size:1.15rem; margin-bottom:1rem">
+    Recorded Duration: <b style="color:var(--ok); font-size:1.3rem">{{ a.conf_min }} minutes</b>
+  </div>
+  {% if a.proof_img %}
+  <div style="margin-bottom:1rem">
+    <a href="/uploads/{{ a.proof_img }}" target="_blank">
+      <img src="/uploads/{{ a.proof_img }}" alt="Proof" style="max-height:120px; border-radius:6px; border:1px solid var(--line)">
+    </a>
+  </div>
+  {% endif %}
+  <div style="display:flex; gap:0.8rem; justify-content:center; flex-wrap:wrap">
+    <a href="/a/{{ a.id }}/complete" class="btn pri sm" style="font-weight:700">View Submission Receipt &rarr;</a>
+    <a href="/me" class="btn sm">Back to Scripts</a>
+  </div>
+</div>
+{% else %}
+<div class="submission-box-card">
+  <div style="display:flex; align-items:center; gap:0.8rem; margin-bottom:1rem">
+    <span style="font-size:2.2rem">📝</span>
+    <div>
+      <h2 style="margin:0; font-size:1.3rem">Submit Script Completion</h2>
+      <div class="small mute">Enter duration and capture photo of your successful client submission</div>
+    </div>
+  </div>
+
+  <form method="post" action="/a/{{ a.id }}/submit" enctype="multipart/form-data">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+
+    <div class="grid g2" style="gap:1.2rem; margin-bottom:1.4rem">
+      <!-- BOX 1: Time Taken to Complete Script -->
+      <div style="background:var(--bg); padding:1rem; border-radius:10px; border:1px solid var(--line)">
+        <label style="font-weight:700; color:var(--ink); margin-top:0; font-size:0.95rem">
+          ⏱️ Box 1: Time Taken (Minutes)
+        </label>
+        <div class="small mute" style="margin-bottom:0.5rem">
+          Enter total recorded time as shown on client dashboard:
+        </div>
+        <div style="display:flex; align-items:center; gap:0.5rem">
+          <input type="number" step="0.1" min="0.1" name="minutes" id="minutes-input"
+                 placeholder="e.g. 14.5" required autofocus
+                 style="font-size:1.3rem; font-weight:800; text-align:center; padding:0.6rem; border-radius:8px; width:140px; border:2px solid var(--acc)">
+          <span style="font-weight:700; color:var(--mute)">minutes</span>
+        </div>
+      </div>
+
+      <!-- BOX 2: Photo of Successful Submission -->
+      <div style="background:var(--bg); padding:1rem; border-radius:10px; border:1px solid var(--line)">
+        <label style="font-weight:700; color:var(--ink); margin-top:0; font-size:0.95rem">
+          📸 Box 2: Submission Proof Photo
+        </label>
+        <div class="small mute" style="margin-bottom:0.5rem">
+          Take photo or screenshot of successful submission:
+        </div>
+        <input type="file" name="photo" id="photo-input" accept="image/*" capture="environment"
+               onchange="handlePhotoSelect(this)" required
+               style="font-size:0.9rem; padding:0.5rem; background:var(--card); border-radius:8px">
+        <div class="photo-preview-box" id="preview-box">
+          <img id="preview-img" src="" alt="Proof Preview">
+          <div class="small mute" style="margin-top:0.2rem">Photo attached ready for submission</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SUBMIT BUTTON -->
+    <button type="submit" class="btn pri big" style="font-size:1.15rem; font-weight:800; background:var(--ok); border-color:var(--ok)">
+      🚀 Submit Recording &amp; Finish
+    </button>
+  </form>
+</div>
+{% endif %}
+
+<script>
+  let currentFs = 1.15;
+  function adjustFont(delta) {
+    currentFs = Math.max(0.9, Math.min(2.0, currentFs + delta));
+    document.getElementById('script-text-container').style.setProperty('--fs', currentFs);
+  }
+
+  function copyScriptText() {
+    const text = document.getElementById('script-text-container').innerText;
+    navigator.clipboard.writeText(text).then(() => {
+      const btn = document.getElementById('copy-btn');
+      btn.innerText = '✅ Copied!';
+      setTimeout(() => { btn.innerText = '📋 Copy'; }, 1500);
+    });
+  }
+
+  function handlePhotoSelect(input) {
+    if (input.files && input.files[0]) {
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        document.getElementById('preview-img').src = e.target.result;
+        document.getElementById('preview-box').style.display = 'block';
+      };
+      reader.readAsDataURL(input.files[0]);
+    }
+  }
+</script>
+{% endblock %}

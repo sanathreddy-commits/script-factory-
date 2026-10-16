@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block body %}
+<h1>Settings</h1>
+<p class="small mute">Spec version now <b>{{ S.spec_version }}</b> · prompt version <b>{{ S.prompt_version }}</b>. All money is in Rs.</p>
+<form method="post" action="/admin/settings"><input type="hidden" name="csrf" value="{{ csrf }}">
+{% for title,items in groups %}<div class="card"><h2>{{ title }}</h2><div class="grid g2">
+  {% for k,label in items %}<div><label>{{ label }}</label><input name="{{ k }}" value="{{ S[k] }}"></div>{% endfor %}</div></div>{% endfor %}
+<div class="card"><h2>Master writing prompt</h2><p class="small mute">Saving a change creates a new prompt version automatically. Existing scripts keep the version they were built with.</p>
+  <textarea name="master_prompt" style="min-height:220px">{{ prompt }}</textarea></div>
+<div class="stick"><button class="btn pri big">Save settings</button></div></form>
+{% endblock %}

@@ -1,0 +1,32 @@
+services:
+  - type: web
+    name: script-factory
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m app.script_importer --dir scripts_library && uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      # --- Primary database: Supabase Postgres (durable; survives sleeps/redeploys) ---
+      # Use the Supabase *connection pooler* URI (Project > Settings > Database > Connection Pooling,
+      # mode "Transaction", port 6543), e.g.
+      #   postgresql://postgres.<ref>:<DB-PASSWORD>@aws-0-<region>.pooler.supabase.com:6543/postgres
+      - key: SUPABASE_POSTGRES_URL
+        sync: false
+      # --- Login passwords (user IDs are fixed in code: admin@awign.com / sanath.reddy@awign.com) ---
+      - key: SF_ADMIN_PASSWORD
+        sync: false
+      - key: SF_DEV_PASSWORD
+        sync: false
+      # Optional: keep a stable 8-char admin access code instead of a new random one each boot.
+      # - key: SF_ADMIN_CODE
+      #   sync: false
+      # --- Supabase Storage (proof photos). Use the service_role key, server-side only. ---
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_KEY
+        sync: false
+      - key: SUPABASE_PROOF_BUCKET
+        value: proofs
+      # Keep-alive self-ping (every 10 min) uses RENDER_EXTERNAL_URL, which Render injects
+      # automatically - no need to set it. A UptimeRobot/cron hitting /healthz also works.

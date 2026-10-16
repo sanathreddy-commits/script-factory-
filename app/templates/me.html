@@ -1,0 +1,187 @@
+{% extends "base.html" %}
+{% block mainclass %}narrow{% endblock %}
+{% block body %}
+<div class="pagehead">
+  <div>
+    <h1>Hi {{ (user.name or 'Participant').split()[0] if (user.name and user.name.split()) else 'Participant' }}</h1>
+    <div class="mute small">{{ L.name if L else 'Audio' }} · Audio Recording Portal</div>
+  </div>
+</div>
+
+<!-- Script Progress Counts (NO HOURS) -->
+<div class="grid g3" style="margin-bottom:1.5rem">
+  <div class="card" style="text-align:center; padding:1.2rem; border-left:4px solid var(--acc)">
+    <div class="kpi" id="kpi-total">{{ total_assigned }}</div>
+    <div class="small mute" style="font-weight:600; text-transform:uppercase; margin-top:.3rem">Total Assigned</div>
+  </div>
+  <div class="card" style="text-align:center; padding:1.2rem; border-left:4px solid var(--ok)">
+    <div class="kpi" id="kpi-completed" style="color:var(--ok)">{{ completed_count }}</div>
+    <div class="small mute" style="font-weight:600; text-transform:uppercase; margin-top:.3rem">Completed</div>
+  </div>
+  <div class="card" style="text-align:center; padding:1.2rem; border-left:4px solid var(--warn)">
+    <div class="kpi" id="kpi-pending" style="color:var(--warn)">{{ pending_count }}</div>
+    <div class="small mute" style="font-weight:600; text-transform:uppercase; margin-top:.3rem">Pending</div>
+  </div>
+</div>
+
+<!-- Partner Information Card -->
+<div class="card" style="margin-bottom:1.5rem">
+  <h2>Your Recording Partner</h2>
+  {% if pair and partner %}
+    <div style="font-size:1.15rem; font-weight:700; color:#16292A; margin:.4rem 0">{{ partner.name }}</div>
+    <div style="display:flex; flex-direction:column; gap:.5rem; margin-top:.6rem">
+      {% if partner.phone %}
+      <div class="row" style="gap:.6rem; align-items:center; flex-wrap:wrap">
+        <span>📞 Phone: <b>{{ partner.phone }}</b></span>
+        {% if partner_wa %}
+        <a class="btn sm" href="https://wa.me/{{ partner_wa }}" target="_blank" rel="noopener" style="background:#25D366; color:#fff; border-color:#25D366; font-weight:600; text-decoration:none; display:inline-flex; align-items:center; gap:4px">
+          💬 WhatsApp Partner
+        </a>
+        {% endif %}
+      </div>
+      {% endif %}
+      {% if partner.email %}
+      <div class="row">
+        <span>✉️ Email: <b>{{ partner.email }}</b></span>
+      </div>
+      {% endif %}
+    </div>
+  {% else %}
+    <p class="mute" style="margin:.4rem 0">No partner assigned yet. Your team lead will pair you soon.</p>
+  {% endif %}
+  {% if lead %}
+    <p class="small mute" style="margin-top:.8rem; border-top:1px solid var(--line); padding-top:.5rem">
+      Team Lead: <b>{{ lead.name }}</b>
+      {% if lead.phone %} · <a href="https://wa.me/91{{ lead.phone }}" target="_blank" rel="noopener">WhatsApp Lead</a>{% endif %}
+    </p>
+  {% endif %}
+</div>
+
+<!-- SCRIPTS TO RECORD SECTION (All assigned scripts shown!) -->
+<div class="card" style="margin-bottom:1.5rem">
+  <div class="row" style="justify-content:space-between; align-items:center; margin-bottom:.8rem; flex-wrap:wrap; gap:.5rem">
+    <div>
+      <h2 style="margin:0">Your scripts to Record ({{ uncompleted|length }})</h2>
+      <div class="small mute">All assigned scripts for your pair. Choose any script to open, read, and save recording duration.</div>
+    </div>
+    {% if uncompleted %}
+    <span class="pill warn" style="font-weight:700">{{ uncompleted|length }} To Record</span>
+    {% elif total_assigned > 0 %}
+    <span class="pill ok" style="font-weight:700">All Completed!</span>
+    {% endif %}
+  </div>
+
+  {% if uncompleted %}
+    <div style="display:flex; flex-direction:column; gap:.8rem; margin-top:1rem">
+      {% for s in uncompleted %}
+      <div style="background:var(--acc2); border:1px solid var(--line); border-radius:8px; padding:1.1rem 1.3rem; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:1rem">
+        <div style="flex:1; min-width:240px">
+          <div class="row" style="align-items:center; gap:.6rem; margin-bottom:.3rem">
+            <span class="pill pri" style="font-size:0.75rem; font-weight:700">#{{ loop.index }}</span>
+            <span style="font-weight:700; font-size:1.15rem; color:var(--ink)">{{ s.code }}</span>
+            <span class="pill {{ 'ok' if s.status=='IN_SESSION' else 'gray' }}" style="font-size:0.75rem">
+              {{ 'In Session' if s.status=='IN_SESSION' else 'Ready to Record' }}
+            </span>
+          </div>
+          <div class="small mute">
+            {{ s.subdomain }}{% if s.specialisation %} · <b>{{ s.specialisation }}</b>{% endif %}
+          </div>
+        </div>
+        <div>
+          <a href="/a/{{ s.id }}" class="btn pri" style="font-weight:700; padding:.6rem 1.2rem; display:inline-flex; align-items:center; gap:.4rem">
+            📖 Open Script & Record &rarr;
+          </a>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  {% elif total_assigned > 0 and completed_count == total_assigned %}
+    <div style="text-align:center; padding:1.8rem; background:rgba(16,185,129,0.08); border-radius:8px; border:1px solid rgba(16,185,129,0.25)">
+      <div style="font-size:2.2rem; margin-bottom:.4rem">🎉</div>
+      <h3 style="color:var(--ok); margin:0 0 .3rem 0">All Assigned Scripts Completed!</h3>
+      <p class="mute" style="margin:0">You and your partner have successfully recorded all {{ total_assigned }} scripts. Fantastic job!</p>
+    </div>
+  {% else %}
+    <p class="mute" style="margin:.6rem 0">No scripts assigned to your pair yet. Your team lead will assign scripts.</p>
+  {% endif %}
+</div>
+
+<!-- COMPLETED SCRIPTS SECTION (Viewable at any time) -->
+{% if completed_assigns %}
+<div class="card" style="margin-bottom:1.5rem">
+  <div class="row" style="justify-content:space-between; align-items:center; margin-bottom:.8rem; flex-wrap:wrap; gap:.5rem">
+    <div>
+      <h2 style="margin:0; color:var(--ok)">✅ Completed Scripts ({{ completed_assigns|length }})</h2>
+      <div class="small mute">These recordings are saved. You can view the complete script and recorded time at any time.</div>
+    </div>
+    <span class="pill ok" style="font-weight:700">{{ completed_count }} Saved</span>
+  </div>
+
+  <div style="display:flex; flex-direction:column; gap:.8rem; margin-top:1rem">
+    {% for s in completed_assigns %}
+    <div style="background:rgba(16,185,129,0.06); border:1px solid rgba(16,185,129,0.25); border-radius:8px; padding:1rem 1.3rem; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:1rem">
+      <div style="flex:1; min-width:240px">
+        <div class="row" style="align-items:center; gap:.6rem; margin-bottom:.3rem">
+          <span style="color:var(--ok); font-weight:700; font-size:1.15rem">✓ {{ s.code }}</span>
+          <span class="pill ok" style="font-size:0.75rem; font-weight:700">
+            Recorded: {{ s.conf_min }} min
+          </span>
+        </div>
+        <div class="small mute">
+          {{ s.subdomain }}{% if s.specialisation %} · {{ s.specialisation }}{% endif %}
+        </div>
+      </div>
+      <div>
+        <a href="/a/{{ s.id }}" class="btn sm" style="font-weight:600; display:inline-flex; align-items:center; gap:.4rem">
+          📄 View Script
+        </a>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+{% if current_script %}
+<!-- Quick Report Issue Option -->
+<div class="card" style="margin-bottom:1.5rem; background:rgba(30,41,59,0.5); border-left:4px solid var(--warn)">
+  <details>
+    <summary style="font-weight:600; cursor:pointer; color:var(--warn); display:flex; align-items:center; gap:.5rem">
+      ⚠️ Facing an issue with this session? (Partner no-show, audio, tech issue)
+    </summary>
+    <form method="post" action="/me/issue" style="margin-top:.8rem">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <div class="row" style="gap:.6rem; flex-wrap:wrap">
+        <select name="kind" style="max-width:240px">
+          <option value="partner_no_show">Partner did not show up</option>
+          <option value="audio_problem">Audio quality problem</option>
+          <option value="script_error">Script error</option>
+          <option value="tech_failure">Recorder not working</option>
+          <option value="other">Other issue</option>
+        </select>
+        <input name="note" placeholder="Short description of the issue..." style="flex:1; min-width:200px" required>
+        <button class="btn sm warn" style="font-weight:600">Report to Lead</button>
+      </div>
+    </form>
+  </details>
+</div>
+{% endif %}
+
+
+
+{% if current_script %}
+<script>
+// Auto reload if script completed
+setInterval(function() {
+  fetch('/me/state', { credentials: 'same-origin' })
+    .then(function(r) { return r.json(); })
+    .then(function(s) {
+      if (s && s.completed_count !== {{ completed_count }}) {
+        location.reload();
+      }
+    })
+    .catch(function() {});
+}, 8000);
+</script>
+{% endif %}
+{% endblock %}

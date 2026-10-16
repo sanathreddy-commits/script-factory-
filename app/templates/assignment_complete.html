@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}Submission Receipt · {{ s.code }}{% endblock %}
+{% block mainclass %}narrow{% endblock %}
+{% block body %}
+<div class="card" style="padding:2rem 1.6rem; text-align:center; border:2px solid var(--ok); border-radius:16px; margin:4vh auto; max-width:540px">
+  <div style="font-size:3rem; margin-bottom:0.4rem">🎉</div>
+  <h1 style="color:var(--ok); font-size:1.6rem; margin:0 0 0.4rem">Script Submission Complete!</h1>
+  <p class="mute small" style="margin:0 0 1.5rem">
+    Your recording duration and submission screenshot have been successfully submitted for review.
+  </p>
+
+  <div style="background:var(--bg); border:1px solid var(--line); border-radius:12px; padding:1.2rem; text-align:left; margin-bottom:1.5rem">
+    
+    <!-- 1. Script Code -->
+    <div style="display:flex; justify-content:space-between; align-items:center; padding:0.5rem 0; border-bottom:1px solid var(--line)">
+      <span class="small mute" style="font-weight:700">SCRIPT CODE:</span>
+      <span style="font-size:1.2rem; font-weight:800; color:var(--acc); font-family:monospace">{{ s.code }}</span>
+    </div>
+
+    <!-- 2. Taxonomy -->
+    <div style="display:flex; justify-content:space-between; align-items:center; padding:0.5rem 0; border-bottom:1px solid var(--line)">
+      <span class="small mute" style="font-weight:700">TAXONOMY:</span>
+      <span style="font-weight:700; text-align:right">
+        {{ s.domain }} &gt; {{ s.subdomain }}{% if s.specialisation %} ({{ s.specialisation }}){% endif %}
+      </span>
+    </div>
+
+    <!-- 3. Time to Completion -->
+    <div style="display:flex; justify-content:space-between; align-items:center; padding:0.5rem 0; border-bottom:1px solid var(--line)">
+      <span class="small mute" style="font-weight:700">TIME TO COMPLETION:</span>
+      <span style="font-size:1.15rem; font-weight:800; color:var(--ok)">⏱️ {{ a.conf_min }} minutes</span>
+    </div>
+
+    <!-- 4. Pair Details -->
+    <div style="display:flex; justify-content:space-between; align-items:center; padding:0.5rem 0; border-bottom:1px solid var(--line)">
+      <span class="small mute" style="font-weight:700">PAIR PARTNERS:</span>
+      <span style="font-weight:700;color:#16292A;">
+        {{ ua_name }} &amp; {{ ub_name }}
+      </span>
+    </div>
+
+    <!-- 5. Review Status -->
+    <div style="display:flex; justify-content:space-between; align-items:center; padding:0.5rem 0; border-bottom:1px solid var(--line)">
+      <span class="small mute" style="font-weight:700">REVIEW STATUS:</span>
+      {% if a.review_status == 'APPROVED' %}
+      <span class="pill ok" style="font-size:0.85rem">✅ Approved</span>
+      {% elif a.review_status == 'REJECTED' %}
+      <span class="pill bad" style="font-size:0.85rem">❌ Rejected</span>
+      {% else %}
+      <span class="pill warn" style="font-size:0.85rem">⏳ Submitted · Pending Approval</span>
+      {% endif %}
+    </div>
+
+    <!-- 6. Submission Proof Photo -->
+    {% if a.proof_img %}
+    <div style="padding-top:0.8rem">
+      <div class="small mute" style="font-weight:700; margin-bottom:0.4rem">SUBMISSION SCREENSHOT PROOF:</div>
+      <a href="/uploads/{{ a.proof_img }}" target="_blank" rel="noopener">
+        <img src="/uploads/{{ a.proof_img }}" alt="Submission Proof"
+             style="max-width:100%; max-height:220px; border-radius:8px; border:1px solid var(--line); display:block; margin:0 auto; object-fit:contain">
+      </a>
+      <div class="small mute" style="text-align:center; margin-top:0.2rem">Click image to view full resolution</div>
+    </div>
+    {% endif %}
+
+  </div>
+
+  <div style="display:flex; gap:0.8rem; justify-content:center; flex-wrap:wrap">
+    <a href="/me" class="btn pri big" style="font-weight:700">
+      ← Back to Dashboard &amp; Scripts
+    </a>
+  </div>
+</div>
+{% endblock %}

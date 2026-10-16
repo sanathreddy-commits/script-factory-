@@ -1,0 +1,6 @@
+{% extends "base.html" %}
+{% block body %}
+<h1>Search “{{ qs }}”</h1>
+<div class="card"><h2>Scripts</h2>{% for s in res.scripts %}<div><a href="{{ '/admin/script/'~s.id if user.role=='admin' else '#' }}"><b>{{ s.code }}</b></a> <span class="small mute">{{ s.subdomain }} · {{ s.status }}</span></div>{% else %}<span class="mute">No match</span>{% endfor %}</div>
+<div class="card"><h2>People</h2>{% for p in res.people %}<div><b>{{ p.name }}</b> <span class="small mute">{{ p.role }} · {{ mask(p.phone) }}</span></div>{% else %}<span class="mute">No match</span>{% endfor %}</div>
+{% endblock %}

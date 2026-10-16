@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+scratch/
+patch*.py
+copy_dummy*.py
+data/db_backups/
+data/uploads/
+data/*.db
+data/*.db-*
+data/ADMIN_CODE.txt
+.env
+app/static/uploads/*
+!app/static/uploads/.gitkeep
+*.zip

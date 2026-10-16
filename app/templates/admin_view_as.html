@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}View as agent{% endblock %}
+{% block pagetitle %}View as agent{% endblock %}
+{% block content %}
+<h1 class="page-title" style="margin:0 0 4px;">View as agent</h1>
+<span class="muted-text">Opens the agent dashboard exactly as that agent sees it. Use "Back to my view" to return.</span>
+<form method="get" style="margin:14px 0;"><input name="q" value="{{ q }}" placeholder="Search name or phone" class="form-input" style="max-width:320px;"></form>
+<div class="table-container"><table class="data-table"><thead><tr><th>Agent</th><th>Language</th><th>Phone</th><th></th></tr></thead><tbody>
+{% for a in agents %}<tr><td style="font-weight:600;">{{ a.name }}</td><td>{{ a.lang }}</td><td>{{ a.phone or '-' }}</td><td style="text-align:right;"><a class="btn btn-secondary btn-sm" href="/agent/login_as/{{ a.id }}">Open agent view</a></td></tr>
+{% else %}<tr><td colspan="4" class="muted-text" style="text-align:center;">No agents found.</td></tr>{% endfor %}
+</tbody></table></div>
+{% endblock %}

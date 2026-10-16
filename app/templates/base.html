@@ -1,0 +1,525 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>{% block title %}ScriptFlow{% endblock %}</title>
+  <link rel="stylesheet" href="/static/style.css?v={{ asset_v }}">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Kannada:wght@400;600&family=Noto+Sans+Tamil:wght@400;600&family=Noto+Sans+Gujarati:wght@400;600&family=Noto+Sans+Gurmukhi:wght@400;600&family=Noto+Sans+Devanagari:wght@400;600&family=Noto+Sans+Oriya:wght@400;600&display=swap" rel="stylesheet">
+</head>
+<body>
+<div class="app-container">
+  {% if user and user.role != 'participant' %}
+  <!-- Desktop-First Left Sidebar (240px #032E30) -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <div class="brand-title">ScriptFlow</div>
+    </div>
+    
+    <nav class="sidebar-nav">
+      {% if user.role in ('admin', 'developer') %}
+        <a href="/admin" class="sidebar-dashboard-btn {% if path in ('/admin', '/admin/dashboard') and not q.get('lang_id') and not q.get('agent_id') %}active{% endif %}">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="7" height="7"></rect>
+            <rect x="14" y="3" width="7" height="7"></rect>
+            <rect x="14" y="14" width="7" height="7"></rect>
+            <rect x="3" y="14" width="7" height="7"></rect>
+          </svg>
+          <span>Dashboard</span>
+        </a>
+
+        <div class="nav-heading">Management</div>
+        {% if user.role in ('admin', 'developer') and langs %}
+        <div style="padding:2px 14px 10px 14px;">
+          <form action="/set_language" method="post" style="margin:0;">
+            <input type="hidden" name="csrf" value="{{ csrf }}">
+            <input type="hidden" name="next" value="{{ path }}">
+            <div style="font-size:10px;color:rgba(220,237,236,0.65);margin-bottom:3px;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;">Language</div>
+            <select name="lang" onchange="if(this.value==='__new__'){window.location='/admin/language/new';}else{this.form.submit();}" class="form-select" style="width:100%;height:30px;padding:2px 8px;font-size:12px;font-weight:600;background:rgba(255,255,255,0.12);color:#FFFFFF;border:1px solid rgba(220,237,236,0.25);border-radius:var(--radius);cursor:pointer;">
+              <option value="all" {% if not L or L.id == 'all' %}selected{% endif %} style="color:#111;">All Languages</option>
+              {% for l in langs %}
+                <option value="{{ l.id }}" {% if L and L.id == l.id %}selected{% endif %} style="color:#111;">{{ l.name }}</option>
+              {% endfor %}
+              <option value="__new__" style="color:#0F766E;font-weight:700;">+ Add New Language...</option>
+            </select>
+          </form>
+        </div>
+        {% elif user.role in ('admin', 'developer') and not langs %}
+        <div style="padding:2px 14px 10px 14px;">
+          <a href="/admin/language/new" class="btn btn-secondary btn-sm" style="width:100%;font-size:11px;padding:5px 8px;display:inline-flex;align-items:center;justify-content:center;gap:4px;color:#FFFFFF;border-color:rgba(220,237,236,0.3);background:rgba(255,255,255,0.08);text-decoration:none;">
+            + Add Language
+          </a>
+        </div>
+        {% endif %}
+        <div class="nav-subgroup">
+          <a href="/admin/agents" class="nav-subitem {% if path == '/admin/agents' %}active{% endif %}">Agents</a>
+          <a href="/admin/scripts" class="nav-subitem {% if path == '/admin/scripts' %}active{% endif %}">Scripts</a>
+          <a href="/admin/pairs" class="nav-subitem {% if path in ('/admin/pairs', '/admin/assign', '/admin/assignment') %}active{% endif %}">Pairs &amp; Assignment</a>
+          <a href="/admin/reports" class="nav-subitem {% if path == '/admin/reports' %}active{% endif %}">Reports</a>
+        </div>
+        
+        <div class="nav-heading">Administration</div>
+        <div class="nav-subgroup">
+          <a href="/admin/supervisors" class="nav-subitem {% if path == '/admin/supervisors' %}active{% endif %}">Supervisors</a>
+          <a href="/admin/client_access" class="nav-subitem {% if path == '/admin/client_access' %}active{% endif %}">Client Access Links</a>
+        </div>
+      {% elif user.role in ('lead', 'supervisor') %}
+        <a href="/admin" class="sidebar-dashboard-btn {% if path in ('/admin', '/admin/dashboard') and not q.get('lang_id') and not q.get('agent_id') %}active{% endif %}">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="7" height="7"></rect>
+            <rect x="14" y="3" width="7" height="7"></rect>
+            <rect x="14" y="14" width="7" height="7"></rect>
+            <rect x="3" y="14" width="7" height="7"></rect>
+          </svg>
+          <span>Dashboard</span>
+        </a>
+
+        <div class="nav-heading">Management</div>
+        {% if sup_langs and sup_langs|length > 1 %}
+        <div style="padding:2px 14px 10px 14px;">
+          <form action="/set_language" method="post" style="margin:0;">
+            <input type="hidden" name="csrf" value="{{ csrf }}">
+            <input type="hidden" name="next" value="{{ path }}">
+            <div style="font-size:10px;color:rgba(220,237,236,0.65);margin-bottom:3px;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;">Language</div>
+            <select name="lang" onchange="this.form.submit()" class="form-select" style="width:100%;height:30px;padding:2px 8px;font-size:12px;font-weight:600;background:rgba(255,255,255,0.12);color:#FFFFFF;border:1px solid rgba(220,237,236,0.25);border-radius:var(--radius);cursor:pointer;">
+              <option value="all" {% if not L or L.id == 'all' %}selected{% endif %} style="color:#111;">All my languages</option>
+              {% for l in sup_langs %}<option value="{{ l.id }}" {% if L and L.id == l.id %}selected{% endif %} style="color:#111;">{{ l.name }}</option>{% endfor %}
+            </select>
+          </form>
+        </div>
+        {% elif L %}
+        <div style="padding:2px 14px 10px 14px;">
+          <div style="font-size:10px;color:rgba(220,237,236,0.65);margin-bottom:3px;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;">Language</div>
+          <span style="display:inline-block;padding:2px 8px;font-size:12px;background:rgba(255,255,255,0.12);color:#FFFFFF;border-radius:var(--radius);">{{ L.name }}</span>
+        </div>
+        {% endif %}
+        <div class="nav-subgroup">
+          <a href="/admin/agents" class="nav-subitem {% if path == '/admin/agents' %}active{% endif %}">Agents</a>
+          <a href="/admin/scripts" class="nav-subitem {% if path == '/admin/scripts' %}active{% endif %}">Scripts</a>
+          <a href="/admin/pairs" class="nav-subitem {% if path in ('/admin/pairs', '/admin/assign', '/admin/assignment') %}active{% endif %}">Pairs &amp; Assignment</a>
+          <a href="/admin/reports" class="nav-subitem {% if path == '/admin/reports' %}active{% endif %}">Reports</a>
+        </div>
+        
+        <div class="nav-heading">Administration</div>
+        <div class="nav-subgroup">
+          <a href="/admin/client_access" class="nav-subitem {% if path == '/admin/client_access' %}active{% endif %}">Client Access Links</a>
+        </div>
+      {% endif %}
+
+      {% if user.role == 'developer' %}
+        <div class="nav-heading">Developer (DV)</div>
+        <div class="nav-subgroup">
+          <a href="/dev/connections" class="nav-subitem {% if path == '/dev/connections' %}active{% endif %}">Connections</a>
+          <a href="/dev/keys" class="nav-subitem {% if path == '/dev/keys' %}active{% endif %}">Keys</a>
+          <a href="/dev/admins" class="nav-subitem {% if path == '/dev/admins' %}active{% endif %}">Admins</a>
+          <a href="/dev/rules" class="nav-subitem {% if path == '/dev/rules' %}active{% endif %}">Rules</a>
+          <a href="/dev/backups" class="nav-subitem {% if path == '/dev/backups' %}active{% endif %}">Backups</a>
+          <a href="/dev/logs" class="nav-subitem {% if path == '/dev/logs' %}active{% endif %}">Logs</a>
+        </div>
+      {% endif %}
+    </nav>
+
+    <div class="sidebar-footer">
+      {% if user.role in ('admin', 'developer', 'lead', 'supervisor') %}
+      <details class="profile-switch" style="margin-bottom:8px;">
+        <summary style="list-style:none;cursor:pointer;">
+      {% endif %}
+      <div class="user-profile-card">
+        <div class="user-profile-avatar">
+          {{ (user.name[:1] if user.name else 'U')|upper }}
+        </div>
+        <div class="user-profile-info">
+          <div class="user-profile-name" title="{{ user.name or 'User' }}">
+            {{ user.name or 'User' }}
+          </div>
+          <div class="user-profile-designation">
+            {% if user.role == 'developer' %}Developer
+            {% elif user.role == 'admin' %}System Administrator
+            {% elif user.role in ('lead', 'supervisor') %}Supervisor{% if sup_langs %} ({{ sup_langs|map(attribute='name')|join(', ') }}){% elif L %} ({{ L.name }}){% endif %}
+            {% elif user.role == 'participant' %}Speaker / Agent
+            {% else %}{{ user.role|capitalize }}{% endif %}
+          </div>
+        </div>
+      </div>
+      {% if user.role in ('admin', 'developer', 'lead', 'supervisor') %}
+        </summary>
+        <div style="background:rgba(255,255,255,0.10);border-radius:8px;padding:6px;margin-top:6px;display:flex;flex-direction:column;gap:2px;">
+          <a href="/admin" class="nav-subitem">{{ 'Admin view' if user.role in ('admin','developer') else 'Dashboard view' }}</a>
+          {% if user.role in ('admin','developer') %}
+          <a href="/admin/view-as-supervisor" class="nav-subitem">Supervisor view</a>
+          {% else %}
+          <a href="/team" class="nav-subitem">Supervisor view</a>
+          {% endif %}
+          <a href="/admin/view-as-agent" class="nav-subitem">Agent view</a>
+        </div>
+      </details>
+      {% endif %}
+      <form method="post" action="/logout" style="margin:0;">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <button type="submit" class="btn btn-secondary btn-sm" style="width:100%;color:#FFFFFF;border-color:rgba(220,237,236,0.3);background:transparent;">Log out</button>
+      </form>
+    </div>
+  </aside>
+  {% endif %}
+
+  <div class="main-wrapper">
+    <main class="content-body">
+      {% if q.get('m') %}<div class="card" style="border-color:var(--primary);color:var(--primary);padding:10px 14px;margin-bottom:14px;font-weight:600;">{{ q.get('m') }}</div>{% endif %}
+      {% if q.get('e') %}<div class="card" style="border-color:#D64545;color:#D64545;padding:10px 14px;margin-bottom:14px;font-weight:600;">{{ q.get('e') }}</div>{% endif %}
+      {% if viewing_as_return %}
+      <div style="position:fixed;bottom:14px;right:14px;z-index:9998;background:#16292A;color:#fff;padding:10px 14px;border-radius:10px;font-size:13px;box-shadow:0 6px 24px rgba(0,0,0,.3);">
+        Viewing as {{ viewing_as_role or 'another user' }} · <a href="/switch_back" style="color:#7FE0D4;font-weight:700;">Back to my view</a>
+      </div>
+      {% endif %}
+      {% block content %}{% block body %}{% endblock %}{% endblock %}
+    </main>
+  </div>
+</div>
+
+<!-- Mandatory Reason Modal for Any Delete Action -->
+<div id="deleteModal" class="modal-overlay">
+  <div class="modal-box">
+    <div class="modal-title" id="deleteModalTitle">Confirm Delete</div>
+    <p class="body-text" id="deleteModalText" style="margin-bottom:12px;">This action requires a mandatory reason.</p>
+    <form id="deleteModalForm" method="post" action="">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <div class="form-group">
+        <label class="form-label" for="deleteReason">Reason (Mandatory) *</label>
+        <textarea id="deleteReason" name="reason" class="form-textarea" required rows="3" placeholder="Enter reason for deletion..."></textarea>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-secondary" onclick="closeDeleteModal()">Cancel</button>
+        <button type="submit" class="btn btn-danger">Confirm Delete</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+function openDeleteModal(actionUrl, title, text) {
+  const modal = document.getElementById('deleteModal');
+  const form = document.getElementById('deleteModalForm');
+  const titleEl = document.getElementById('deleteModalTitle');
+  const textEl = document.getElementById('deleteModalText');
+  const reasonEl = document.getElementById('deleteReason');
+  
+  form.action = actionUrl;
+  if (title) titleEl.textContent = title;
+  if (text) textEl.textContent = text;
+  reasonEl.value = '';
+  modal.classList.add('active');
+  reasonEl.focus();
+}
+
+function closeDeleteModal() {
+  document.getElementById('deleteModal').classList.remove('active');
+}
+
+function copyToClipboard(text, elem) {
+  navigator.clipboard.writeText(text).then(() => {
+    const orig = elem.innerHTML;
+    elem.innerHTML = '✓ Copied';
+    setTimeout(() => { elem.innerHTML = orig; }, 1500);
+  });
+}
+</script>
+
+<!-- Global Floating Hover Popover Card -->
+<div id="globalHoverCard" class="global-hover-card" style="display:none;"></div>
+
+<script>
+// --- Global Hover Popover System ---
+(function() {
+  let hoverTimer = null;
+  const hoverCard = document.getElementById('globalHoverCard');
+  if (!hoverCard) return;
+
+  function escapeHtml(str) {
+    if (!str) return '';
+    return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  function getBadgeClass(status) {
+    const s = (status || '').toUpperCase();
+    if (s === 'ACCEPTED' || s === 'APPROVED' || s === 'ACTIVE') return 'status-accepted';
+    if (s === 'SUBMITTED' || s === 'COMPLETED') return 'status-submitted';
+    if (s === 'ASSIGNED' || s === 'IN_SESSION') return 'status-assigned';
+    if (s === 'REJECTED' || s === 'DROPPED') return 'status-rejected';
+    if (s.includes('LIMIT')) return 'status-limit';
+    return 'status-available';
+  }
+
+  function renderAgentCard(d) {
+    const name = escapeHtml(d.name || 'Agent');
+    const initials = name.split(' ').map(n => n[0]).slice(0, 2).join('') || 'A';
+    const role = escapeHtml(d.role || 'Agent');
+    const lang = escapeHtml(d.language || 'All');
+    const phone = escapeHtml(d.phone || '-');
+    const email = escapeHtml(d.email || '-');
+    const gender = escapeHtml(d.gender || '-');
+    const avail = escapeHtml(d.availability || 'All day');
+    const partner = escapeHtml(d.partner || 'Unpaired');
+    const status = escapeHtml(d.status || 'Active');
+    const recH = parseFloat(d.recorded_h !== undefined ? d.recorded_h : 0);
+    const recHPct = Math.min(100, Math.round((recH / 15.0) * 100));
+    const barClass = recH >= 15.0 ? 'red' : (recH >= 12.0 ? 'amber' : 'teal');
+
+    return `
+      <div class="hover-card-header">
+        <div class="hover-card-avatar">${initials}</div>
+        <div style="flex:1;min-width:0;">
+          <div class="hover-card-title">${name}</div>
+          <div class="hover-card-subtitle">${role} · ${lang}</div>
+        </div>
+        <span class="status-badge ${getBadgeClass(status)}">${status}</span>
+      </div>
+      <div class="hover-card-body">
+        <div class="hover-card-grid">
+          <div class="hover-card-item">
+            <span class="hover-card-label">Phone</span>
+            <span class="hover-card-val">${phone}</span>
+          </div>
+          <div class="hover-card-item">
+            <span class="hover-card-label">Email</span>
+            <span class="hover-card-val">${email}</span>
+          </div>
+          <div class="hover-card-item">
+            <span class="hover-card-label">Gender</span>
+            <span class="hover-card-val">${gender}</span>
+          </div>
+          <div class="hover-card-item">
+            <span class="hover-card-label">Availability</span>
+            <span class="hover-card-val">${avail}</span>
+          </div>
+        </div>
+        <div style="margin-top:8px;padding-top:6px;border-top:1px solid #EEF2F6;display:flex;justify-content:space-between;align-items:center;">
+          <span class="hover-card-label">Paired With</span>
+          <span style="font-weight:700;font-size:12px;color:#16292A;">${partner}</span>
+        </div>
+        <div style="margin-top:6px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px;">
+            <span class="hover-card-label">Recorded Hours</span>
+            <span style="font-weight:700;font-size:11.5px;color:var(--text);">${recH.toFixed(1)} / 15.0 h</span>
+          </div>
+          <div class="progress-bar-wrap" style="width:100%;height:4px;background:#E2E8F0;border-radius:2px;overflow:hidden;">
+            <div class="progress-bar-fill ${barClass}" style="width:${recHPct}%;height:100%;"></div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderPartnersCard(list) {
+    const shown = list.slice(0, 3);
+    const more = list.length - shown.length;
+    const blocks = shown.map(function(d, i) {
+      const name = escapeHtml(d.name || 'Partner');
+      const initials = name.split(' ').map(n => n[0]).slice(0, 2).join('') || 'P';
+      const recH = parseFloat(d.recorded_h || 0);
+      const pct = Math.min(100, Math.round((recH / 15.0) * 100));
+      const bar = recH >= 15.0 ? 'red' : (recH >= 12.0 ? 'amber' : 'teal');
+      const status = escapeHtml(d.status || 'Active');
+      return `
+        <div class="hover-card-body" style="${i ? 'border-top:1px solid #EEF2F6;' : ''}">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+            <div class="hover-card-avatar" style="width:26px;height:26px;font-size:11px;">${initials}</div>
+            <div style="flex:1;min-width:0;">
+              <div class="hover-card-title" style="font-size:13px;">${name}</div>
+              <div class="hover-card-subtitle">Partner · ${escapeHtml(d.language || '-')}</div>
+            </div>
+            <span class="status-badge ${getBadgeClass(status)}">${status}</span>
+          </div>
+          <div class="hover-card-grid">
+            <div class="hover-card-item"><span class="hover-card-label">Phone</span><span class="hover-card-val">${escapeHtml(d.phone || '-')}</span></div>
+            <div class="hover-card-item"><span class="hover-card-label">Email</span><span class="hover-card-val">${escapeHtml(d.email || '-')}</span></div>
+            <div class="hover-card-item"><span class="hover-card-label">Gender</span><span class="hover-card-val">${escapeHtml(d.gender || '-')}</span></div>
+            <div class="hover-card-item"><span class="hover-card-label">Availability</span><span class="hover-card-val">${escapeHtml(d.availability || 'All day')}</span></div>
+          </div>
+          <div style="margin-top:6px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px;">
+              <span class="hover-card-label">Recorded Hours</span>
+              <span style="font-weight:700;font-size:11.5px;color:var(--text);">${recH.toFixed(1)} / 15.0 h</span>
+            </div>
+            <div class="progress-bar-wrap" style="width:100%;height:4px;background:#E2E8F0;border-radius:2px;overflow:hidden;">
+              <div class="progress-bar-fill ${bar}" style="width:${pct}%;height:100%;"></div>
+            </div>
+          </div>
+        </div>`;
+    }).join('');
+    return `
+      <div class="hover-card-header">
+        <div class="hover-card-icon">👥</div>
+        <div style="flex:1;min-width:0;">
+          <div class="hover-card-title">Paired with</div>
+          <div class="hover-card-subtitle">${list.length} ${list.length === 1 ? 'partner' : 'partners'}</div>
+        </div>
+      </div>
+      ${blocks}
+      ${more > 0 ? `<div class="hover-card-body" style="border-top:1px solid #EEF2F6;font-size:11.5px;color:var(--muted);">+ ${more} more ${more === 1 ? 'partner' : 'partners'}</div>` : ''}`;
+  }
+
+  function renderPairCard(d) {
+    const nameA = escapeHtml(d.name_a || 'Partner A');
+    const nameB = escapeHtml(d.name_b || 'Partner B');
+    const phoneA = escapeHtml(d.phone_a || '-');
+    const phoneB = escapeHtml(d.phone_b || '-');
+    const lang = escapeHtml(d.language || '-');
+    const avail = escapeHtml(d.availability || 'All day');
+    const status = escapeHtml(d.status || 'Active');
+    const recH = parseFloat(d.recorded_h !== undefined ? d.recorded_h : 0);
+    const recHPct = Math.min(100, Math.round((recH / 7.5) * 100));
+    const barClass = recH >= 7.5 ? 'red' : (recH >= 6.0 ? 'amber' : 'teal');
+
+    return `
+      <div class="hover-card-header">
+        <div class="hover-card-icon">👥</div>
+        <div style="flex:1;min-width:0;">
+          <div class="hover-card-title">${nameA} &amp; ${nameB}</div>
+          <div class="hover-card-subtitle">Pair · ${lang}</div>
+        </div>
+        <span class="status-badge ${getBadgeClass(status)}">${status}</span>
+      </div>
+      <div class="hover-card-body">
+        <div class="hover-card-grid">
+          <div class="hover-card-item">
+            <span class="hover-card-label">Partner A</span>
+            <span class="hover-card-val" style="font-weight:700;color:#16292A;">${nameA}</span>
+            <span style="font-size:10px;color:var(--muted);">${phoneA}</span>
+          </div>
+          <div class="hover-card-item">
+            <span class="hover-card-label">Partner B</span>
+            <span class="hover-card-val" style="font-weight:700;color:#16292A;">${nameB}</span>
+            <span style="font-size:10px;color:var(--muted);">${phoneB}</span>
+          </div>
+          <div class="hover-card-item">
+            <span class="hover-card-label">Language</span>
+            <span class="hover-card-val">${lang}</span>
+          </div>
+          <div class="hover-card-item">
+            <span class="hover-card-label">Availability</span>
+            <span class="hover-card-val">${avail}</span>
+          </div>
+        </div>
+        <div style="margin-top:8px;padding-top:6px;border-top:1px solid #EEF2F6;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px;">
+            <span class="hover-card-label">Pair Hours (Max 7.5h)</span>
+            <span style="font-weight:700;font-size:11.5px;color:var(--text);">${recH.toFixed(1)} / 7.5 h</span>
+          </div>
+          <div class="progress-bar-wrap" style="width:100%;height:4px;background:#E2E8F0;border-radius:2px;overflow:hidden;">
+            <div class="progress-bar-fill ${barClass}" style="width:${recHPct}%;height:100%;"></div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderScriptCard(d) {
+    const code = escapeHtml(d.code || 'Script');
+    const domain = escapeHtml(d.domain || '-');
+    const subdomain = escapeHtml(d.subdomain || '-');
+    const spec = escapeHtml(d.specialisation || '-');
+    const status = escapeHtml(d.status || 'Available');
+    const words = d.words ? `${d.words} words` : '-';
+    const pair = escapeHtml(d.pair || '-');
+
+    return `
+      <div class="hover-card-header">
+        <div class="hover-card-icon">📜</div>
+        <div style="flex:1;min-width:0;">
+          <div class="hover-card-title">${code}</div>
+          <div class="hover-card-subtitle">${domain} &gt; ${subdomain}</div>
+        </div>
+        <span class="status-badge ${getBadgeClass(status)}">${status}</span>
+      </div>
+      <div class="hover-card-body">
+        <div class="hover-card-grid">
+          <div class="hover-card-item" style="grid-column:span 2;">
+            <span class="hover-card-label">Specialisation</span>
+            <span class="hover-card-val">${spec}</span>
+          </div>
+          <div class="hover-card-item">
+            <span class="hover-card-label">Word Count</span>
+            <span class="hover-card-val">${words}</span>
+          </div>
+          <div class="hover-card-item">
+            <span class="hover-card-label">Assigned Pair</span>
+            <span class="hover-card-val">${pair}</span>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  function showHover(el) {
+    let content = '';
+    const rawAgent = el.getAttribute('data-hover-agent');
+    const rawPair = el.getAttribute('data-hover-pair');
+    const rawScript = el.getAttribute('data-hover-script');
+    const rawPartners = el.getAttribute('data-hover-partners');
+
+    try {
+      if (rawAgent) content = renderAgentCard(JSON.parse(rawAgent));
+      else if (rawPair) content = renderPairCard(JSON.parse(rawPair));
+      else if (rawScript) content = renderScriptCard(JSON.parse(rawScript));
+      else if (rawPartners) { const pl = JSON.parse(rawPartners); if (pl && pl.length) content = renderPartnersCard(pl); }
+    } catch(e) { return; }
+
+    if (!content) return;
+    hoverCard.innerHTML = content;
+    hoverCard.style.display = 'block';
+
+    const rect = el.getBoundingClientRect();
+    const cardW = hoverCard.offsetWidth || 295;
+    const cardH = hoverCard.offsetHeight || 180;
+
+    let left = rect.left + (rect.width / 2) - (cardW / 2);
+    if (left < 10) left = 10;
+    if (left + cardW > window.innerWidth - 10) {
+      left = window.innerWidth - cardW - 10;
+    }
+
+    let top = rect.top - cardH - 8;
+    if (top < 10) {
+      top = rect.bottom + 8;
+    }
+
+    hoverCard.style.left = `${Math.round(left)}px`;
+    hoverCard.style.top = `${Math.round(top)}px`;
+    hoverCard.classList.add('active');
+  }
+
+  function hideHover() {
+    hoverCard.classList.remove('active');
+    setTimeout(() => {
+      if (!hoverCard.classList.contains('active')) {
+        hoverCard.style.display = 'none';
+        hoverCard.innerHTML = '';
+      }
+    }, 140);
+  }
+
+  document.addEventListener('mouseover', function(e) {
+    const trigger = e.target.closest('[data-hover-agent], [data-hover-pair], [data-hover-script], [data-hover-partners]');
+    if (!trigger) return;
+    if (hoverTimer) clearTimeout(hoverTimer);
+    hoverTimer = setTimeout(() => showHover(trigger), 120);
+  });
+
+  document.addEventListener('mouseout', function(e) {
+    const trigger = e.target.closest('[data-hover-agent], [data-hover-pair], [data-hover-script], [data-hover-partners]');
+    if (!trigger) return;
+    if (trigger.contains(e.relatedTarget)) return;
+    if (hoverTimer) clearTimeout(hoverTimer);
+    hideHover();
+  });
+
+  window.addEventListener('scroll', hideHover, true);
+  window.addEventListener('resize', hideHover);
+})();
+</script>
+{% if user and user.role in ("admin","lead","supervisor","developer") %}{% include "_kpi_modal.html" %}{% endif %}
+{% block scripts %}{% endblock %}
+</body>
+</html>

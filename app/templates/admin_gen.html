@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block body %}
+<div class="pagehead"><div><h1>Generation</h1>
+  <div class="small mute">Queue: {{ q.get('QUEUED',0) }} waiting · {{ q.get('RUNNING',0) }} running · {{ done }} done · {{ q.get('NEEDS_HUMAN',0) }} need a human · spend {{ spent|inr }} of {{ cap|inr }}</div></div>
+  <form method="post" action="/admin/gen/{{ 'resume' if paused else 'pause' }}"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn {{ 'pri' if paused else 'bad' }}">{{ 'Resume generation' if paused else 'Pause generation' }}</button></form></div>
+{% if not threads %}<div class="alert warn">Background workers are switched off (SF_NO_THREADS).</div>{% endif %}
+{% if paused %}<div class="alert bad">Generation is paused. If this came from stop-the-line, fix the prompt in Settings first, then resume.</div>{% endif %}
+
+<div class="card"><h2>Key pool</h2>
+<p class="small mute">One worker per active writer key. The judge always uses a different model from the writer. Rate limits are usually per account, so extra keys from one account will not add speed; use separate providers or projects.</p>
+<div class="tw"><table class="stack"><thead><tr><th>Label</th><th>Provider / model</th><th>Role</th><th>Languages</th><th>Key</th><th>Spend today / cap</th><th>OK / 429 / fail</th><th>Status</th><th></th></tr></thead><tbody>
+{% for k in keys %}<tr><td data-l="Label"><b>{{ k.label }}</b></td><td data-l="Model">{{ k.provider }} / {{ k.model }}</td><td data-l="Role">{{ k.role }}</td><td data-l="Languages">{{ k.languages }}</td>
+  <td data-l="Key" class="mono small">{{ mask_key(k.api_key) }}</td><td data-l="Spend" class="mono">{{ k.spent_day|inr }} / {{ k.daily_cap|inr }}</td><td data-l="OK/429/fail" class="mono">{{ k.ok }} / {{ k.n429 }} / {{ k.fail }}</td>
+  <td data-l="Status"><span class="pill {{ 'ok' if k.status=='active' else 'bad' }}">{{ k.status }}</span></td>
+  <td class="act">{% if k.status=='active' %}<form method="post" action="/admin/keys/{{ k.id }}/pause" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn sm">Pause</button></form>
+    {% else %}<form method="post" action="/admin/keys/{{ k.id }}/resume" class="inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn sm pri">Enable</button></form>{% endif %}
+    <form method="post" action="/admin/keys/{{ k.id }}/delete" class="inline" onsubmit="return confirm('Delete key?')"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn sm bad">Delete</button></form></td></tr>
+{% else %}<tr><td colspan="9" class="mute">No keys yet.</td></tr>{% endfor %}</tbody></table></div></div>
+
+<div class="card"><h2>Add a key</h2>
+<form method="post" action="/admin/keys/add"><input type="hidden" name="csrf" value="{{ csrf }}">
+  <div class="grid g4"><div><label>Label</label><input name="label" placeholder="writer-1"></div>
+    <div><label>Provider</label><select name="provider"><option value="anthropic">anthropic</option><option value="openai">openai-compatible</option><option value="stub">stub (TEST ONLY)</option></select></div>
+    <div><label>Model</label><input name="model" placeholder="model name"></div>
+    <div><label>Role</label><select name="role"><option value="writer">writer</option><option value="judge">judge</option><option value="spare">spare</option></select></div></div>
+  <div class="grid g4"><div><label>API key</label><input name="api_key" type="password" autocomplete="off"></div><div><label>Base URL (optional)</label><input name="base_url"></div>
+    <div><label>Languages (* or KN,HI)</label><input name="languages" value="*"></div><div><label>Requests / minute</label><input name="rpm" type="number" value="30"></div></div>
+  <div class="grid g4"><div><label>Daily cap (Rs)</label><input name="daily_cap" type="number" value="500"></div><div><label>Monthly cap (Rs)</label><input name="monthly_cap" type="number" value="5000"></div>
+    <div><label>Price in, Rs per 1M tokens</label><input name="price_in" type="number" step="0.01" value="0"></div><div><label>Price out, Rs per 1M tokens</label><input name="price_out" type="number" step="0.01" value="0"></div></div>
+  <button class="btn pri" style="margin-top:.8rem">Add key</button>
+  <p class="small mute">Stub scripts are random placeholder text in the right script. They exercise the whole pipeline but are marked TEST and cannot be assigned unless you allow it in Settings.</p></form></div>
+
+<div class="card"><h2>Failed auto-repair ({{ human|length }})</h2>
+{% for h in human %}<div class="row" style="justify-content:space-between;border-bottom:1px solid var(--line);padding:.4rem 0"><span><a href="/review/{{ h.id }}"><b>{{ h.code }}</b></a> <span class="small mute">{{ h.error }}</span></span>
+  <form method="post" action="/admin/script/{{ h.id }}/retry"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn sm">Retry</button></form></div>{% else %}<p class="mute">None.</p>{% endfor %}</div>
+{% endblock %}

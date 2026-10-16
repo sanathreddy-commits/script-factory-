@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block mainclass %}narrow{% endblock %}
+{% block body %}
+<div class="card" style="padding:28px 24px;text-align:center;max-width:540px;margin:40px auto;">
+  <h1 style="margin-bottom:12px;font-size:22px;color:var(--text);">{{ title }}</h1>
+  <p style="color:var(--muted);margin-bottom:24px;font-size:14px;line-height:1.5;">{{ text }}</p>
+  <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;">
+    <button class="btn btn-secondary" onclick="if(window.history.length>1){window.history.back();}else{window.location.href='{% if user and user.role in ('admin', 'developer', 'lead', 'supervisor') %}/admin{% else %}/agent{% endif %}';}">Back</button>
+    <a class="btn btn-primary" href="{% if user and user.role in ('admin', 'developer', 'lead', 'supervisor') %}/admin{% else %}/agent{% endif %}">Return to Dashboard</a>
+  </div>
+</div>
+{% endblock %}
