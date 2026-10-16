@@ -23,13 +23,19 @@ from zoneinfo import ZoneInfo
 
 import httpx
 try:
-    from Cryptodome.Hash import SHA256
-    from Cryptodome.PublicKey import RSA
-    from Cryptodome.Signature import pkcs1_15
+    # pycryptodome (requirements.txt) installs as 'Crypto'; pycryptodomex as 'Cryptodome'
+    from Crypto.Hash import SHA256
+    from Crypto.PublicKey import RSA
+    from Crypto.Signature import pkcs1_15
 except ImportError:
-    SHA256 = None
-    RSA = None
-    pkcs1_15 = None
+    try:
+        from Cryptodome.Hash import SHA256
+        from Cryptodome.PublicKey import RSA
+        from Cryptodome.Signature import pkcs1_15
+    except ImportError:
+        SHA256 = None
+        RSA = None
+        pkcs1_15 = None
 
 from .. import db
 

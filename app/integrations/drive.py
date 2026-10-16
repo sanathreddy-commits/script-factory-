@@ -298,9 +298,10 @@ class GoogleDriveClient:
                     headers["Authorization"] = f"Bearer {creds.token}"
                     return headers
             except ImportError as ex:
+                # google.auth.transport.requests also needs the 'requests' package
                 raise DriveAuthError(
-                    "google-auth library is not installed on the server. "
-                    "Add 'google-auth' to requirements.txt and redeploy."
+                    f"Google auth libraries are missing on the server ({ex}). "
+                    "Make sure 'google-auth' and 'requests' are in requirements.txt and redeploy."
                 ) from ex
             except Exception as ex:
                 raise DriveAuthError(
