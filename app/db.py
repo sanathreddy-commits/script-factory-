@@ -144,6 +144,14 @@ DROP TRIGGER IF EXISTS ledger_no_delete ON ledger;
 CREATE TRIGGER ledger_no_delete BEFORE DELETE ON ledger FOR EACH ROW EXECUTE FUNCTION sf_immutable();
 """
 
+# Every scripts column except the ~6 KB duplicate-detection fingerprint (shingles). Use instead of s.* wherever
+# the fingerprint is not needed: loading it for every script made each management page pull 1-2.5 MB from
+# Supabase (egress quota) for data that was never shown.
+SCRIPT_COLS = ", ".join("s." + col for col in (
+    "id", "language_id", "seq", "code", "domain", "subdomain", "specialisation", "wave", "attrs", "brief", "status",
+    "version", "words", "is_test", "source", "prompt_version", "spec_version", "judge", "needs_review",
+    "reject_reason", "opening", "created_at", "updated_at"))
+
 DEFAULTS = {
     "words_min": "1200", "words_max": "1500", "max_turn_words": "120", "sim_threshold": "0.15",
     "avg_minutes": "10", "open_limit": "5", "sitting": "3", "deadline_hours": "72", "abandon_hours": "6",

@@ -315,6 +315,7 @@
           <th>Sub-domain</th>
           <th>Status</th>
           <th>Assigned Pair</th>
+          <th>Assign</th>
           <th>Time</th>
           <th>Action</th>
         </tr>
@@ -358,12 +359,19 @@
               <span class="muted-text">-</span>
             {% endif %}
           </td>
+          <td onclick="event.stopPropagation();">
+            {% if s.status == 'AVAILABLE' %}
+              <button type="button" class="btn btn-primary btn-sm" style="height:24px;padding:0 8px;" onclick="sfOpenAssign({{ s.code|tojson|forceescape }})">Assign</button>
+            {% else %}
+              <span class="muted-text">-</span>
+            {% endif %}
+          </td>
           <td style="white-space:nowrap;"><strong style="color:#16292A;">{{ s.time_taken }}</strong></td>
           <td><button type="button" class="btn btn-secondary btn-sm" style="height:24px;padding:0 6px;" onclick="event.stopPropagation(); openScriptByCode('{{ s.code }}')">View</button>
             {% if can_del %}<button type="button" class="btn btn-sm" style="height:24px;padding:0 6px;background:#FEE2E2;color:#B91C1C;border:1px solid #FECACA;" title="Delete this script" onclick="event.stopPropagation(); sfDelete({codes:[{{ s.code|tojson|forceescape }}]}, 'script {{ s.code }}')">Delete</button>{% endif %}</td>
         </tr>
         {% else %}
-        <tr><td colspan="10" class="muted-text" style="text-align:center;">No scripts available. Click "Sync Scripts" to import.</td></tr>
+        <tr><td colspan="11" class="muted-text" style="text-align:center;">No scripts available. Click "Sync Scripts" to import.</td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -528,6 +536,78 @@
     window.sfClearSel = function(){ var a=document.getElementById('sfSelAll'); if(a) a.checked=false; sfSelAll(false); };
     window.sfDelSelected = function(){ var c = selected(); if(c.length) sfDelete({codes:c}, c.length===1 ? 'script '+c[0] : 'the ' + c.length + ' selected scripts'); };
     try{ sfSetScriptView(localStorage.getItem('sfScriptView')||'folder'); }catch(e){ sfSetScriptView('folder'); }
+  })();
+  </script>
+
+  <!-- Assign one script to a chosen pair (pairs of the script's language) -->
+  <div id="sfAssignModal" class="modal-overlay" onclick="if(event.target===this)sfCloseAssign()">
+    <div class="modal-box" style="max-width:560px;width:94%;">
+      <div class="modal-title" id="sfAssignTitle">Assign script</div>
+      <div class="muted-text" id="sfAssignSub" style="font-size:12px;margin-bottom:10px;"></div>
+      <input type="text" id="sfAssignSearch" class="form-input" placeholder="Search pair by name…" oninput="sfRenderAssign()" style="margin-bottom:10px;">
+      <div id="sfAssignList" style="max-height:340px;overflow:auto;border:1px solid var(--border);border-radius:8px;"></div>
+      <div id="sfAssignMsg" style="display:none;margin-top:10px;font-size:13px;border-radius:8px;padding:8px 12px;"></div>
+      <div class="modal-actions" style="margin-top:12px;">
+        <button type="button" class="btn btn-secondary" onclick="sfCloseAssign()">Close</button>
+      </div>
+    </div>
+  </div>
+  <script>
+  (function(){
+    var CSRF_A = {{ (csrf or '')|tojson }}, cur = {code: '', pairs: []};
+    function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
+    function msg(text, ok){ var m=document.getElementById('sfAssignMsg'); m.style.display=text?'block':'none'; m.textContent=text||'';
+      m.style.background = ok ? '#ECFDF5' : '#FEF2F2'; m.style.color = ok ? '#047857' : '#B91C1C'; }
+    window.sfOpenAssign = function(code){
+      cur = {code: code, pairs: []};
+      document.getElementById('sfAssignTitle').textContent = 'Assign script ' + code;
+      document.getElementById('sfAssignSub').textContent = 'Loading pairs…';
+      document.getElementById('sfAssignSearch').value = '';
+      document.getElementById('sfAssignList').innerHTML = '';
+      msg('');
+      document.getElementById('sfAssignModal').classList.add('active');
+      fetch('/admin/scripts/pairs_for?code=' + encodeURIComponent(code), {credentials:'same-origin'})
+        .then(function(r){ return r.json(); })
+        .then(function(d){
+          if (d.error){ document.getElementById('sfAssignSub').textContent = d.error; return; }
+          cur.pairs = d.pairs || [];
+          document.getElementById('sfAssignSub').textContent = d.language + ' · ' + cur.pairs.length + ' active pair' + (cur.pairs.length===1?'':'s') +
+            (d.already_assigned ? ' · this script is already assigned' : '');
+          sfRenderAssign();
+        })
+        .catch(function(){ document.getElementById('sfAssignSub').textContent = 'Could not load pairs. Try again.'; });
+    };
+    window.sfRenderAssign = function(){
+      var q = (document.getElementById('sfAssignSearch').value || '').toLowerCase();
+      var rows = cur.pairs.filter(function(p){ return !q || p.names.toLowerCase().indexOf(q) >= 0; });
+      var box = document.getElementById('sfAssignList');
+      if (!rows.length){ box.innerHTML = '<div class="muted-text" style="padding:14px;">No active pairs in this language.</div>'; return; }
+      box.innerHTML = rows.map(function(p){
+        var full = p.open >= p.open_limit, cap = p.limit_reached;
+        var block = cap ? 'Hours limit reached' : (full ? 'Has ' + p.open + ' unfinished scripts (the most allowed at once is ' + p.open_limit + ')' : '');
+        return '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid var(--border);">'
+          + '<div><div style="font-weight:700;">' + esc(p.names) + '</div>'
+          + '<div style="font-size:12px;margin-top:2px;display:flex;gap:12px;flex-wrap:wrap;">'
+          + '<span>Assigned <b>' + p.assigned + '</b></span><span style="color:#B45309;">Pending <b>' + p.pending + '</b></span>'
+          + '<span style="color:#047857;">Completed <b>' + p.completed + '</b></span></div>'
+          + '<div class="muted-text" style="font-size:12px;">' + esc(p.availability) + ' · ' + p.recorded_h.toFixed(1) + ' / ' + p.cap_h + ' h recorded</div>'
+          + (block ? '<div style="font-size:12px;color:#B91C1C;">' + esc(block) + '</div>' : '') + '</div>'
+          + '<button type="button" class="btn btn-primary btn-sm" ' + ((full||cap)?'disabled title="' + esc(block) + '"':'') + ' onclick="sfDoAssign(' + p.id + ', this)">Assign</button></div>';
+      }).join('');
+    };
+    window.sfDoAssign = function(pid, btn){
+      btn.disabled = true; btn.textContent = 'Assigning…'; msg('');
+      var fd = new FormData(); fd.append('csrf', CSRF_A); fd.append('code', cur.code); fd.append('pair_id', pid);
+      fetch('/admin/scripts/assign_one', {method:'POST', body:fd, credentials:'same-origin'})
+        .then(function(r){ return r.json().catch(function(){ return {error:'Server error (HTTP ' + r.status + ').'}; }); })
+        .then(function(d){
+          if (d.error){ msg(d.error, false); btn.disabled = false; btn.textContent = 'Assign'; return; }
+          msg(d.message + ' Refreshing…', true);
+          setTimeout(function(){ location.reload(); }, 700);
+        })
+        .catch(function(){ msg('Network error. Try again.', false); btn.disabled = false; btn.textContent = 'Assign'; });
+    };
+    window.sfCloseAssign = function(){ document.getElementById('sfAssignModal').classList.remove('active'); };
   })();
   </script>
 

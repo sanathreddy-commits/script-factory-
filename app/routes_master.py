@@ -1123,7 +1123,7 @@ def build_management_context(c, u, request: Request, active_tab: str = "agents")
     }
 
     scripts_raw = c.execute(
-        "SELECT s.*, l.name as lang_name FROM scripts s JOIN languages l ON l.id=s.language_id "
+        f"SELECT {db.SCRIPT_COLS}, l.name as lang_name FROM scripts s JOIN languages l ON l.id=s.language_id "
         "WHERE s.language_id IN (SELECT id FROM _sel) ORDER BY s.id DESC",
         ()
     ).fetchall()
@@ -1860,6 +1860,91 @@ async def admin_script_text(request: Request):
             return JSONResponse({"error": "Not allowed for this language."}, status_code=403)
         text = get_script_content_text(c, s["id"], s["code"])
     return JSONResponse({"code": s["code"], "text": text})
+
+
+@router.get("/admin/scripts/pairs_for")
+async def admin_script_pairs_for(request: Request):
+    """Active pairs in the script's language, for the Scripts page 'Assign' popup."""
+    u = gate(request, "admin", "lead", "supervisor", "developer")
+    code = (request.query_params.get("code") or "").strip()
+    with db.ro() as c:
+        s = c.execute("SELECT s.id, s.code, s.language_id, l.name lang FROM scripts s JOIN languages l ON l.id=s.language_id "
+                      "WHERE s.code=?", (code,)).fetchone()
+        if not s:
+            return JSONResponse({"error": "Script not found."}, status_code=404)
+        if u["role"] in ("lead", "supervisor") and s["language_id"] not in list(u["lang_ids"]):
+            return JSONResponse({"error": "Not allowed for this language."}, status_code=403)
+        busy = c.execute("SELECT 1 FROM assignments WHERE script_id=? AND status NOT IN ('RELEASED','ABANDONED','REJECTED')",
+                         (s["id"],)).fetchone()
+        prs = c.execute("SELECT p.id, p.a, p.b, p.availability, ua.name na, ub.name nb FROM pairs p "
+                        "JOIN users ua ON ua.id=p.a JOIN users ub ON ub.id=p.b "
+                        "WHERE p.language_id=? AND p.status='ACTIVE' ORDER BY ua.name, ub.name", (s["language_id"],)).fetchall()
+        hours = ops.hours_many(c, "pair", [p["id"] for p in prs])
+        open_n = {}
+        for part in ops._chunks([p["id"] for p in prs]):
+            ph = ",".join("?" * len(part))
+            for r in c.execute(f"SELECT pair_id, COUNT(*) n FROM assignments WHERE pair_id IN ({ph}) "
+                               f"AND status IN ('ASSIGNED','IN_SESSION') GROUP BY pair_id", tuple(part)).fetchall():
+                open_n[r["pair_id"]] = r["n"]
+        limit = int(db.setting(c, "open_limit", "5") or 5)
+        # Assigned / Completed / Pending counted exactly like the Pairs page (joint history of the two people).
+        asg = _assignments_touching(c, users=[p["a"] for p in prs] + [p["b"] for p in prs], pairs=[p["id"] for p in prs])
+        by_pid, by_couple = {}, {}
+        for a in asg:
+            by_pid.setdefault(a["pair_id"], []).append(a)
+            by_couple.setdefault(frozenset((a["ua"], a["ub"])), []).append(a)
+
+        def _counts(p):
+            joint = {a["id"]: a for a in by_pid.get(p["id"], [])}
+            for a in by_couple.get(frozenset((p["a"], p["b"])), []):
+                if (a["ua"], a["ub"]) in ((p["a"], p["b"]), (p["b"], p["a"])):
+                    joint[a["id"]] = a
+            n_asg = sum(1 for a in joint.values()
+                        if a["status"] is not None and a["status"] not in ('RELEASED', 'ABANDONED', 'REJECTED'))
+            n_cmp = sum(1 for a in joint.values() if a["status"] in ('SUBMITTED', 'COMPLETED', 'CONFIRMED', 'ACCEPTED')
+                        or a["review_status"] in ('APPROVED', 'ACCEPTED'))
+            return n_asg, max(0, n_asg - n_cmp), n_cmp
+
+        pairs = []
+        for p in prs:
+            n_asg, n_pnd, n_cmp = _counts(p)
+            pairs.append({"id": p["id"], "names": f"{p['na']} & {p['nb']}", "availability": p["availability"] or "All day",
+                  "assigned": n_asg, "pending": n_pnd, "completed": n_cmp,
+                  "open": open_n.get(p["id"], 0), "open_limit": limit,
+                  "recorded_h": hours[p["id"]]["recorded_h"], "cap_h": hours[p["id"]]["cap_h"],
+                  "limit_reached": bool(hours[p["id"]]["limit_reached"])})
+    return JSONResponse({"code": s["code"], "language": s["lang"], "already_assigned": bool(busy), "pairs": pairs})
+
+
+@router.post("/admin/scripts/assign_one")
+async def admin_script_assign_one(request: Request):
+    """Assign one specific script to one chosen pair (same caps and rules as automatic assignment)."""
+    u = gate(request, "admin", "lead", "supervisor", "developer")
+    f = await request.form()
+    if f.get("csrf") != getattr(request.state, "csrf", None):
+        return JSONResponse({"error": "Session expired. Reload the page and try again."}, status_code=400)
+    code = (f.get("code") or "").strip()
+    pid_raw = str(f.get("pair_id") or "")
+    if not pid_raw.isdigit():
+        return JSONResponse({"error": "Pick a pair."}, status_code=400)
+    try:
+        with db.tx() as c:
+            s = c.execute("SELECT id, language_id FROM scripts WHERE code=?", (code,)).fetchone()
+            if not s:
+                return JSONResponse({"error": "Script not found."}, status_code=404)
+            p = c.execute("SELECT id, language_id FROM pairs WHERE id=?", (int(pid_raw),)).fetchone()
+            if not p or p["language_id"] != s["language_id"]:
+                return JSONResponse({"error": "That pair is not in this script's language."}, status_code=400)
+            made, note = ops.assign(c, u, p["id"], 1, only_script=s["id"])
+            if made:
+                db.audit(c, u, "assign_script_manual", f"script={code} pair={p['id']}")
+    except PermissionError as e:
+        return JSONResponse({"error": str(e)}, status_code=403)
+    except ops.OpsError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+    if not made:
+        return JSONResponse({"error": note or "Could not assign this script."}, status_code=400)
+    return JSONResponse({"ok": True, "message": f"Script {code} assigned."})
 
 
 @router.get("/admin/scripts/tree")

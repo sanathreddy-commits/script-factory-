@@ -6,6 +6,8 @@ import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
+from . import db
+
 IST = ZoneInfo("Asia/Kolkata")
 
 HEADER_FILL = PatternFill(start_color="00A896", end_color="00A896", fill_type="solid")
@@ -348,7 +350,7 @@ def generate_master_excel_report(c, lang_id=None) -> bytes:
         params_sc.append(lang_id)
 
     scripts = c.execute(
-        f"SELECT s.*, l.name as lang_name FROM scripts s JOIN languages l ON l.id=s.language_id {where_sc} ORDER BY s.id DESC",
+        f"SELECT {db.SCRIPT_COLS}, l.name as lang_name FROM scripts s JOIN languages l ON l.id=s.language_id {where_sc} ORDER BY s.id DESC",
         params_sc
     ).fetchall()
 

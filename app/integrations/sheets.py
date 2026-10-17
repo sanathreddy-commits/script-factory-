@@ -554,7 +554,7 @@ def get_scripts_master_data(c) -> Tuple[List[str], List[List[Any]]]:
     headers = ["Code", "Language", "Domain", "Subdomain", "Status", "Word Count"]
     rows = []
     scripts = c.execute(
-        "SELECT s.*, l.name as lang_name FROM scripts s "
+        f"SELECT {db.SCRIPT_COLS}, l.name as lang_name FROM scripts s "
         "JOIN languages l ON l.id=s.language_id "
         "ORDER BY s.id ASC"
     ).fetchall()

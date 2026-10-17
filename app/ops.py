@@ -908,8 +908,9 @@ def role_map(attrs, u1, u2, last_ua):
     return None
 
 
-def assign(c, actor, pair_id, n, only=None, override=False, reason=""):
-    """Atomic: runs inside the caller's write transaction. Returns (list of assignment ids, note)."""
+def assign(c, actor, pair_id, n, only=None, override=False, reason="", only_script=None):
+    """Atomic: runs inside the caller's write transaction. Returns (list of assignment ids, note).
+    only_script: assign exactly this script id (manual pick from the Scripts page); same rules apply."""
     p = c.execute("SELECT * FROM pairs WHERE id=?", (pair_id,)).fetchone()
     if not p or p["status"] != "ACTIVE":
         raise OpsError("pair is not active")
@@ -954,9 +955,10 @@ def assign(c, actor, pair_id, n, only=None, override=False, reason=""):
             if h1["committed_min"] + est > h1["cap_min"] or h2["committed_min"] + est > h2["cap_min"]:
                 note = "a person's hours cap reached"
                 break
-        pick = pick_script(c, L, p, u1, u2, allow_test, only)
+        pick = pick_script(c, L, p, u1, u2, allow_test, only, only_script=only_script)
         if not pick:
-            note = "no eligible approved script left"
+            note = ("this script is not available for this pair (already assigned, not ready, or another language)"
+                    if only_script else "no eligible approved script left")
             break
         s, ua, ub = pick
         now = time.time()
@@ -1004,11 +1006,13 @@ def assign_fair(c, actor, pair_ids, per_pair, override=False, reason=""):
     return total, got, notes
 
 
-def pick_script(c, L, pair, u1, u2, allow_test, only):
+def pick_script(c, L, pair, u1, u2, allow_test, only, only_script=None):
     rows = c.execute(
-        "SELECT s.* FROM scripts s WHERE s.language_id=? AND s.status IN ('APPROVED','READY') AND (s.is_test=0 OR ?=1) AND NOT EXISTS"
+        f"SELECT {db.SCRIPT_COLS} FROM scripts s WHERE s.language_id=? AND s.status IN ('APPROVED','READY') AND (s.is_test=0 OR ?=1) AND NOT EXISTS"
         " (SELECT 1 FROM assignments a WHERE a.script_id=s.id AND a.status NOT IN ('RELEASED','ABANDONED','REJECTED')) ORDER BY s.seq",
         (L["id"], allow_test)).fetchall()
+    if only_script is not None:
+        rows = [r for r in rows if r["id"] == only_script]
     if only:
         rows = [r for r in rows if (r["subdomain"], r["specialisation"]) == only]
     if not rows:
