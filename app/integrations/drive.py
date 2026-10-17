@@ -518,6 +518,34 @@ class GoogleDriveClient:
         )
         return result
 
+    def download_file(self, name: str = "", file_id: str = "") -> Optional[bytes]:
+        """Bytes of a file in the Drive folder, found by id (preferred) or exact name. None if not found."""
+        headers = self.get_auth_headers()
+        base = "https://www.googleapis.com/drive/v3/files"
+        params: Dict[str, str] = {"supportsAllDrives": "true"}
+        if self.api_key and "Authorization" not in headers:
+            params["key"] = self.api_key
+        client = self._get_http_client()
+        if not file_id and name:
+            safe = name.replace("\\", "").replace("'", "\\'")
+            q = f"name = '{safe}' and trashed = false"
+            if self.folder_id:
+                q += f" and '{self.folder_id}' in parents"
+            r = client.get(base, headers=headers, params={**params, "q": q, "fields": "files(id)", "pageSize": "1",
+                                                          "includeItemsFromAllDrives": "true"})
+            if r.status_code != 200:
+                raise DriveError(f"Drive search failed ({r.status_code}): {self._extract_error_message(r)}")
+            files = r.json().get("files", [])
+            file_id = files[0]["id"] if files else ""
+        if not file_id:
+            return None
+        r = client.get(f"{base}/{file_id}", headers=headers, params={**params, "alt": "media"})
+        if r.status_code == 200 and r.content:
+            return r.content
+        if r.status_code == 404:
+            return None
+        raise DriveError(f"Drive download failed ({r.status_code}): {self._extract_error_message(r)}")
+
     def list_backups(self) -> List[Dict[str, Any]]:
         """List stored backups in Google Drive folder."""
         headers = self.get_auth_headers()
@@ -617,6 +645,21 @@ def upload_recording_file(
     """Store recording or proof asset in Google Drive."""
     client = GoogleDriveClient(config=config, db_conn=c)
     return client.upload_recording_file(file_path, remote_name=remote_name)
+
+
+def file_id_from_link(link: str) -> str:
+    """'https://drive.google.com/file/d/<id>/view' -> '<id>' ('' if it is not a Drive file link)."""
+    import re as _re
+    m = _re.search(r"/file/d/([A-Za-z0-9_-]+)", link or "") or _re.search(r"[?&]id=([A-Za-z0-9_-]+)", link or "")
+    return m.group(1) if m else ""
+
+
+def download_proof(name: str, drive_link: str = "", config: Optional[Dict[str, Any]] = None, c=None) -> Optional[bytes]:
+    """Proof photo bytes from Google Drive (by its saved link, else by file name in the folder), or None."""
+    client = GoogleDriveClient(config=config, db_conn=c)
+    if not client.is_configured():
+        return None
+    return client.download_file(name=name, file_id=file_id_from_link(drive_link))
 
 
 def list_backups(config: Optional[Dict[str, Any]] = None, c=None) -> List[Dict[str, Any]]:

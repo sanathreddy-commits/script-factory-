@@ -707,7 +707,7 @@ def get_hours(c, entity_type: str, entity_id: int) -> dict:
         cap_min = float(L["cap_pair_min"]) if (L and L["cap_pair_min"]) else (pair_limit_h * 60.0)
         rows = c.execute(
             "SELECT conf_min, est_min, status, review_status FROM assignments "
-            "WHERE pair_id=? AND status NOT IN ('RELEASED', 'ABANDONED')",
+            "WHERE pair_id=? AND status NOT IN ('RELEASED', 'ABANDONED') ORDER BY id",
             (entity_id,)
         ).fetchall()
 
@@ -732,12 +732,107 @@ def get_hours(c, entity_type: str, entity_id: int) -> dict:
         cap_min = float(L["cap_person_min"]) if (L and L["cap_person_min"]) else (user_limit_h * 60.0)
         rows = c.execute(
             "SELECT conf_min, est_min, status, review_status FROM assignments "
-            "WHERE (ua=? OR ub=?) AND status NOT IN ('RELEASED', 'ABANDONED')",
+            "WHERE (ua=? OR ub=?) AND status NOT IN ('RELEASED', 'ABANDONED') ORDER BY id",
             (entity_id, entity_id)
         ).fetchall()
     else:
         raise ValueError(f"Unknown entity_type: {entity_type}")
+    return _hours_calc(opening, cap_min, rows)
 
+
+def _empty_hours(cap_min):
+    return {
+        "opening_min": 0.0, "recorded_min": 0.0, "accepted_min": 0.0,
+        "pending_min": 0.0, "rejected_min": 0.0, "planned_min": 0.0,
+        "committed_min": 0.0, "recorded_h": 0.0, "accepted_h": 0.0,
+        "pending_h": 0.0, "rejected_h": 0.0, "planned_h": 0.0,
+        "committed_h": 0.0, "cap_min": cap_min, "cap_h": round(cap_min / 60.0, 2),
+        "limit_reached": False
+    }
+
+
+def _chunks(ids, n=500):
+    ids = list(ids)
+    for i in range(0, len(ids), n):
+        yield ids[i:i + n]
+
+
+def hours_many(c, entity_type, ids):
+    """get_hours() for many users or pairs in a few queries. Same rules, same numbers (shares _hours_calc)."""
+    etype = str(entity_type or "").lower().strip()
+    is_pair = etype in ("pair", "pairs")
+    ids = [i for i in dict.fromkeys(ids) if i is not None]
+    out = {}
+    if not ids:
+        return out
+    S = db.S(c)
+    langs = {r["id"]: r for r in c.execute("SELECT * FROM languages").fetchall()}
+    ents, rows_by = {}, {i: [] for i in ids}
+    table = "pairs" if is_pair else "users"
+    for part in _chunks(ids):
+        ph = ",".join("?" * len(part))
+        for r in c.execute(f"SELECT * FROM {table} WHERE id IN ({ph})", tuple(part)).fetchall():
+            ents[r["id"]] = r
+        if is_pair:
+            q = (f"SELECT id, pair_id, conf_min, est_min, status, review_status FROM assignments "
+                 f"WHERE pair_id IN ({ph}) AND status NOT IN ('RELEASED', 'ABANDONED') ORDER BY id")
+            for r in c.execute(q, tuple(part)).fetchall():
+                rows_by[r["pair_id"]].append(r)
+    if not is_pair:
+        seen = {}
+        for part in _chunks(ids):
+            ph = ",".join("?" * len(part))
+            q = (f"SELECT id, ua, ub, conf_min, est_min, status, review_status FROM assignments "
+                 f"WHERE (ua IN ({ph}) OR ub IN ({ph})) AND status NOT IN ('RELEASED', 'ABANDONED')")
+            for r in c.execute(q, tuple(part) * 2).fetchall():
+                seen[r["id"]] = r
+        for aid in sorted(seen):
+            r = seen[aid]
+            for uid in {r["ua"], r["ub"]}:
+                if uid in rows_by:
+                    rows_by[uid].append(r)
+    key, cap_col, default_h = ("pair_limit_h", "cap_pair_min", 7.5) if is_pair else ("user_limit_h", "cap_person_min", 15.0)
+    try:
+        limit_h = float(S.get(key, default_h))
+    except Exception:
+        limit_h = default_h
+    for i in ids:
+        e = ents.get(i)
+        if not e:
+            out[i] = _empty_hours(450.0 if is_pair else 900.0)
+            continue
+        L = langs.get(e["language_id"]) if e["language_id"] else None
+        cap_min = float(L[cap_col]) if (L and L[cap_col]) else (limit_h * 60.0)
+        out[i] = _hours_calc(float(e["opening_min"] or 0.0), cap_min, rows_by[i])
+    return out
+
+
+class HoursBook:
+    """Request-scoped hours lookup: prefetch many ids at once, then read them for free."""
+
+    def __init__(self, c):
+        self.c, self._u, self._p = c, {}, {}
+
+    def prefetch(self, users=(), pairs=()):
+        nu = [i for i in users if i is not None and i not in self._u]
+        npr = [i for i in pairs if i is not None and i not in self._p]
+        if nu:
+            self._u.update(hours_many(self.c, "user", nu))
+        if npr:
+            self._p.update(hours_many(self.c, "pair", npr))
+
+    def user(self, uid):
+        if uid not in self._u:
+            self.prefetch(users=[uid])
+        return self._u[uid]
+
+    def pair(self, pid):
+        if pid not in self._p:
+            self.prefetch(pairs=[pid])
+        return self._p[pid]
+
+
+def _hours_calc(opening, cap_min, rows):
     acc_m = 0.0
     pend_m = 0.0
     rej_m = 0.0
@@ -1657,6 +1752,33 @@ def active_pairs_for(c, uid):
         pu = c.execute("SELECT id, name, phone, gender FROM users WHERE id=?", (pid_partner,)).fetchone()
         out.append({"pair_id": p["id"], "partner_id": pid_partner,
                     "partner_name": pu["name"] if pu else "?", "partner_phone": (pu["phone"] if pu else "") or "-"})
+    return out
+
+
+def active_pairs_many(c, uids):
+    """active_pairs_for() for many people in two queries. Returns {uid: [same dicts, same order]}."""
+    uids = [u for u in dict.fromkeys(uids) if u is not None]
+    out = {u: [] for u in uids}
+    pairs = {}
+    for part in _chunks(uids):
+        ph = ",".join("?" * len(part))
+        for p in c.execute(f"SELECT * FROM pairs WHERE status='ACTIVE' AND (a IN ({ph}) OR b IN ({ph}))", tuple(part) * 2).fetchall():
+            pairs[p["id"]] = p
+    partner_ids = {p["a"] for p in pairs.values()} | {p["b"] for p in pairs.values()}
+    users = {}
+    for part in _chunks(partner_ids):
+        ph = ",".join("?" * len(part))
+        for r in c.execute(f"SELECT id, name, phone, gender FROM users WHERE id IN ({ph})", tuple(part)).fetchall():
+            users[r["id"]] = r
+    for pid in sorted(pairs):
+        p = pairs[pid]
+        for uid in ((p["a"],) if p["a"] == p["b"] else (p["a"], p["b"])):
+            if uid not in out:
+                continue
+            partner = p["b"] if p["a"] == uid else p["a"]
+            pu = users.get(partner)
+            out[uid].append({"pair_id": p["id"], "partner_id": partner,
+                             "partner_name": pu["name"] if pu else "?", "partner_phone": (pu["phone"] if pu else "") or "-"})
     return out
 
 

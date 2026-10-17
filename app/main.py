@@ -1189,7 +1189,8 @@ async def team_people(request: Request):
             pairs = {}
             for p in c.execute("SELECT * FROM pairs WHERE status='ACTIVE' AND language_id=?", (L["id"],)):
                 pairs[p["a"]] = pairs[p["b"]] = p["id"]
-        used = {r["id"]: ops.person_used(c, r["id"]) for r in rows}
+        people_hours = ops.hours_many(c, "user", [r["id"] for r in rows])   # one batch instead of 3 queries per person
+        used = {r["id"]: people_hours[r["id"]]["committed_min"] for r in rows}
         return render(request, "team_people.html", u, L=L, langs=langs(c), rows=rows, pairs=pairs, used=used, reveal=reveal,
                       total_people=total_people, active_agents=active_agents, paired_count=paired_count, unpaired_count=unpaired_count,
                       mask=ops.mask, can=(u["role"] == "admin" or ops.can_manage(u, L["id"])), preview=None)

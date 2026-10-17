@@ -654,7 +654,7 @@
       </thead>
       <tbody>
         {% for l in logs_list %}
-        <tr style="cursor:pointer;" onclick="alert('Detail:\n' + {{ l.detail|tojson }})">
+        <tr style="cursor:pointer;" onclick="alert('Detail:\n' + {{ l.detail|tojson|forceescape }})">
           <td style="white-space:nowrap;font-size:12px;">{{ l.ts_str }}</td>
           <td style="font-weight:600;">{{ l.actor }}</td>
           <td>{{ l.message }}</td>

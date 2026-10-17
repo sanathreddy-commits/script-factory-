@@ -34,6 +34,17 @@ def uploads_dir() -> str:
 
 def _cfg():
     """(url, key, bucket) or ('', '', bucket) when Supabase is not configured."""
+    from . import db
+    cache = db.read_cache()   # one lookup per read block (exports used to re-read it, on a new connection, per row)
+    if cache is not None and "storage_cfg" in cache:
+        return cache["storage_cfg"]
+    out = _cfg_uncached()
+    if cache is not None:
+        cache["storage_cfg"] = out
+    return out
+
+
+def _cfg_uncached():
     try:
         from . import sync
         cfg = sync.get_config()
@@ -127,8 +138,19 @@ def save_proof(name: str, data: bytes) -> Tuple[bool, str]:
         return False, f"Supabase upload error: {e}"
 
 
-def get_proof(name: str) -> Optional[bytes]:
-    """Bytes of a proof photo, or None. Local cache first, then Supabase (re-caches on hit)."""
+def _cache_local(path: str, data: bytes) -> None:
+    try:
+        with open(path, "wb") as f:
+            f.write(data)
+    except OSError:
+        pass
+
+
+def get_proof(name: str, drive_link: str = "") -> Optional[bytes]:
+    """Bytes of a proof photo, or None. Local cache first, then Supabase, then Google Drive (re-caches on hit).
+
+    Render wipes the local disk on every deploy, so a photo whose Supabase upload failed used to be
+    unviewable even though its Drive copy existed."""
     name = _safe(name)
     if not name:
         return None
@@ -137,19 +159,22 @@ def get_proof(name: str) -> Optional[bytes]:
         with open(path, "rb") as f:
             return f.read()
     url, key, bucket = _cfg()
-    if not (url and key):
-        return None
+    if url and key:
+        try:
+            r = httpx.get(f"{url}/storage/v1/object/{bucket}/{name}", headers=_headers(key), timeout=30)
+            if r.status_code == 200 and r.content:
+                _cache_local(path, r.content)
+                return r.content
+        except Exception as e:
+            print(f"[Storage] get_proof error: {e}")
     try:
-        r = httpx.get(f"{url}/storage/v1/object/{bucket}/{name}", headers=_headers(key), timeout=30)
-        if r.status_code == 200 and r.content:
-            try:
-                with open(path, "wb") as f:
-                    f.write(r.content)
-            except OSError:
-                pass
-            return r.content
+        from .integrations import drive
+        data = drive.download_proof(name, drive_link=drive_link)
+        if data:
+            _cache_local(path, data)
+            return data
     except Exception as e:
-        print(f"[Storage] get_proof error: {e}")
+        print(f"[Storage] get_proof Drive fallback error: {e}")
     return None
 
 

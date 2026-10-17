@@ -1,4 +1,5 @@
 import contextlib
+import contextvars
 import json
 import os
 import sqlite3
@@ -175,9 +176,23 @@ def connect():
     return c
 
 
+# Per-read cache: inside `with ro()` the settings table is read once instead of on every
+# setting()/S() call (a page used to re-read it ~50 times, each a round trip to Supabase).
+# Write transactions never use it, and any write transaction clears the cache of the read
+# block it runs inside, so a value written mid-request is never served stale.
+_READ_CACHE = contextvars.ContextVar("sf_read_cache", default=None)
+
+
+def read_cache():
+    """The current read block's scratch dict, or None inside a write transaction / outside ro()."""
+    return _READ_CACHE.get()
+
+
 @contextlib.contextmanager
 def tx():
     """Write transaction. Never nest: open one, pass `c` down."""
+    outer = _READ_CACHE.get()
+    token = _READ_CACHE.set(None)
     c = connect()
     try:
         c.execute("BEGIN IMMEDIATE")
@@ -191,15 +206,20 @@ def tx():
         raise
     finally:
         c.close()
+        _READ_CACHE.reset(token)
+        if outer is not None:
+            outer.clear()
 
 
 @contextlib.contextmanager
 def ro():
+    token = _READ_CACHE.set({})
     c = connect()
     try:
         yield c
     finally:
         c.close()
+        _READ_CACHE.reset(token)
 
 
 def init_db():
@@ -256,20 +276,35 @@ def init_db():
     c.close()
 
 
+def _settings_rows(c):
+    cache = _READ_CACHE.get()
+    if cache is not None and "settings" in cache:
+        return cache["settings"]
+    rows = {r["k"]: r["v"] for r in c.execute("SELECT k,v FROM settings")}
+    if cache is not None:
+        cache["settings"] = rows
+    return rows
+
+
 def S(c):
     d = dict(DEFAULTS)
-    for r in c.execute("SELECT k,v FROM settings"):
-        d[r["k"]] = r["v"]
+    d.update(_settings_rows(c))
     return d
 
 
 def setting(c, k, default=None):
+    if _READ_CACHE.get() is not None:
+        rows = _settings_rows(c)
+        return rows[k] if k in rows else DEFAULTS.get(k, default)
     r = c.execute("SELECT v FROM settings WHERE k=?", (k,)).fetchone()
     return r["v"] if r else DEFAULTS.get(k, default)
 
 
 def set_setting(c, k, v):
     c.execute("INSERT INTO settings(k,v) VALUES(?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v", (k, str(v)))
+    cache = _READ_CACHE.get()
+    if cache is not None:
+        cache.pop("settings", None)
 
 
 def audit(c, actor, action, detail=""):

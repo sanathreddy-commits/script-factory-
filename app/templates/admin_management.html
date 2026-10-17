@@ -1036,7 +1036,7 @@
             <td style="font-weight:600;">{{ r.time_taken }}</td>
             <td>
               {% if r.proof_img %}
-                <button type="button" class="btn btn-secondary btn-sm" style="height:24px;padding:0 8px;font-size:12px;" onclick="openProofPhotoModal('/uploads/{{ r.proof_img }}', {{ r.script_code|tojson }}, {{ (r.agent_a_name ~ ' & ' ~ r.agent_b_name)|tojson }}, {{ r.time_taken|tojson }})">View Photo</button>
+                <button type="button" class="btn btn-secondary btn-sm" style="height:24px;padding:0 8px;font-size:12px;" onclick="openProofPhotoModal({{ ('/uploads/' ~ r.proof_img)|tojson|forceescape }}, {{ r.script_code|tojson|forceescape }}, {{ (r.agent_a_name ~ ' & ' ~ r.agent_b_name)|tojson|forceescape }}, {{ r.time_taken|tojson|forceescape }})">View Photo</button>
               {% else %}
                 <span class="muted-text">No photo</span>
               {% endif %}
@@ -1202,7 +1202,7 @@
                 <span>{{ item.url }}</span>
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
               </a>
-              <button type="button" class="copy-icon-btn" onclick="copyToClipboard({{ item.url|tojson }}, this)" title="Copy URL" style="background:none;border:none;cursor:pointer;padding:2px 4px;color:var(--muted);display:inline-flex;align-items:center;border-radius:4px;">
+              <button type="button" class="copy-icon-btn" onclick="copyToClipboard({{ item.url|tojson|forceescape }}, this)" title="Copy URL" style="background:none;border:none;cursor:pointer;padding:2px 4px;color:var(--muted);display:inline-flex;align-items:center;border-radius:4px;">
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
               </button>
             </div>
@@ -1210,7 +1210,7 @@
           <td>
             <div style="display:inline-flex;align-items:center;gap:6px;">
               <span style="font-family:monospace;font-weight:700;background:#F4F9F8;padding:2px 8px;border:1px solid #DCEDEC;border-radius:4px;color:#16292A;font-size:12px;">{{ item.code }}</span>
-              <button type="button" class="copy-icon-btn" onclick="copyToClipboard({{ item.code|tojson }}, this)" title="Copy Code" style="background:none;border:none;cursor:pointer;padding:2px 4px;color:var(--muted);display:inline-flex;align-items:center;border-radius:4px;">
+              <button type="button" class="copy-icon-btn" onclick="copyToClipboard({{ item.code|tojson|forceescape }}, this)" title="Copy Code" style="background:none;border:none;cursor:pointer;padding:2px 4px;color:var(--muted);display:inline-flex;align-items:center;border-radius:4px;">
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
               </button>
             </div>
@@ -1382,7 +1382,8 @@
       <button type="button" class="btn btn-secondary btn-sm" onclick="closeProofPhotoModal()" style="padding:2px 8px;font-size:16px;line-height:1;">&times;</button>
     </div>
     <div style="text-align:center;background:#0F172A;border-radius:var(--radius);padding:10px;min-height:220px;display:flex;align-items:center;justify-content:center;">
-      <img id="proofPhotoModalImg" src="" alt="Proof Photo" onerror="this.alt='Photo file not found in storage (it was uploaded before cloud storage was enabled, or the upload failed).';this.style.color='#fff'" style="max-width:100%;max-height:500px;border-radius:4px;object-fit:contain;">
+      <img id="proofPhotoModalImg" src="" alt="Proof Photo" onerror="proofPhotoFailed(this)" onload="var m=document.getElementById('proofPhotoModalMsg');if(m)m.style.display='none';" style="max-width:100%;max-height:500px;border-radius:4px;object-fit:contain;">
+      <div id="proofPhotoModalMsg" style="display:none;background:#FFF7ED;border:1px solid #FED7AA;color:#9A3412;border-radius:8px;padding:12px 14px;font-size:13px;line-height:1.5;text-align:left;"></div>
     </div>
     <div class="modal-actions" style="margin-top:14px;display:flex;justify-content:space-between;align-items:center;">
       <a id="proofPhotoOpenNewTab" href="#" target="_blank" rel="noopener" class="btn btn-secondary btn-sm">Open Full Image ↗</a>
@@ -2372,11 +2373,33 @@ function openProofPhotoModal(imgUrl, scriptCode, agents, timeTaken) {
   const fullLink = document.getElementById('proofPhotoOpenNewTab');
   if (!modal || !img) return;
 
+  const msg = document.getElementById('proofPhotoModalMsg');
+  if (msg) { msg.style.display = 'block'; msg.textContent = 'Loading photo…'; }
+  img.style.display = '';
   img.src = imgUrl;
   if (fullLink) fullLink.href = imgUrl;
   if (title) title.textContent = scriptCode ? `Proof Photo — Script ${scriptCode}` : 'Submission Proof Photo';
   if (subtitle) subtitle.textContent = `${agents || 'Participants'} | Time: ${timeTaken || '-'}`;
   modal.classList.add('active');
+}
+
+// The photo request failed: ask the server why (the error text says which storage was checked) and show it.
+function proofPhotoFailed(img) {
+  const msg = document.getElementById('proofPhotoModalMsg');
+  if (!img.getAttribute('src')) return;
+  img.style.display = 'none';
+  if (!msg) return;
+  msg.style.display = 'block';
+  msg.textContent = 'This photo could not be loaded.';
+  fetch(img.src, {credentials: 'same-origin'})
+    .then(function(r){
+      if (r.ok) return null;
+      if (r.status === 404) return 'it was not found on the server, in Supabase Storage or in Google Drive';
+      if (r.status === 401 || r.status === 403) return 'you are not allowed to view it (log in again)';
+      return 'the server answered HTTP ' + r.status;
+    })
+    .then(function(why){ if (why) msg.textContent = 'This photo could not be loaded: ' + why + '. If it is in your Google Drive folder, check Developer → Connections → Google Drive (Test).'; })
+    .catch(function(){ msg.textContent = 'This photo could not be loaded (network error). Try again.'; });
 }
 
 function closeProofPhotoModal() {
@@ -2419,14 +2442,37 @@ function openScriptModal(code, taxonomy, timeTaken, status, dialogue) {
   document.getElementById('scriptDialogueModal').classList.add('active');
 }
 
+// Script text is no longer embedded in the page (it made pages several MB). Open the popup at once,
+// then load the text for that one script; a cached copy is reused if the same script is opened again.
+window.SCRIPT_TEXT_CACHE = window.SCRIPT_TEXT_CACHE || {};
+function loadScriptTextInto(code) {
+  const contentEl = document.getElementById('modalScriptContent');
+  if (!code || !contentEl) return;
+  if (window.SCRIPT_TEXT_CACHE[code] !== undefined) { contentEl.textContent = window.SCRIPT_TEXT_CACHE[code] || 'No dialogue content available for this script.'; return; }
+  contentEl.textContent = 'Loading script…';
+  fetch('/admin/scripts/text?code=' + encodeURIComponent(code), {credentials: 'same-origin'})
+    .then(function(r){ return r.json().then(function(d){ return {ok: r.ok, d: d}; }); })
+    .then(function(res){
+      if (document.getElementById('modalScriptCode').textContent !== code) return;  // another script was opened meanwhile
+      if (!res.ok) { contentEl.textContent = (res.d && res.d.error) || 'Could not load this script.'; return; }
+      window.SCRIPT_TEXT_CACHE[code] = res.d.text || '';
+      contentEl.textContent = res.d.text || 'No dialogue content available for this script.';
+    })
+    .catch(function(){
+      if (document.getElementById('modalScriptCode').textContent === code) contentEl.textContent = 'Could not load this script. Check your connection and try again.';
+    });
+}
+
 function openScriptByCode(code) {
   const item = (window.SCRIPTS_CACHE && window.SCRIPTS_CACHE[code]) || {};
   openScriptModal(code, item.taxonomy || '', item.pair_label || '-', item.status || 'AVAILABLE', item.dialogue || '');
+  if (!item.dialogue) loadScriptTextInto(code);
 }
 
 function openReportScript(id) {
   const item = (window.REPORTS_CACHE && window.REPORTS_CACHE[id]) || {};
   openScriptModal(item.code || '', item.taxonomy || '', item.time_taken || '-', item.status || '', item.dialogue || '');
+  if (!item.dialogue) loadScriptTextInto(item.code || '');
 }
 
 function closeScriptModal() {

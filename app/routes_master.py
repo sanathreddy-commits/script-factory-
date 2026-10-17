@@ -337,15 +337,17 @@ async def serve_upload_file(request: Request, fname: str):
     if fname.startswith("proof_"):
         # Proof photos show people's faces/screens: only logged-in staff, or the agents named on that assignment.
         u = gate(request, "admin", "lead", "supervisor", "participant")
-        if u["role"] == "participant":
-            with db.ro() as c:
+        with db.ro() as c:
+            if u["role"] == "participant":
                 own = c.execute("SELECT 1 FROM assignments WHERE proof_img=? AND (ua=? OR ub=?)",
                                 (fname, u["id"], u["id"])).fetchone()
-            if not own:
-                raise HTTPException(404, "File not found")
-        data = storage.get_proof(fname)
+                if not own:
+                    raise HTTPException(404, "File not found")
+            row = c.execute("SELECT proof_drive_url FROM assignments WHERE proof_img=? ORDER BY id DESC LIMIT 1",
+                            (fname,)).fetchone()
+        data = storage.get_proof(fname, drive_link=(row["proof_drive_url"] if row else "") or "")
         if data is None:
-            raise HTTPException(404, "Photo file is missing from storage")
+            raise HTTPException(404, "Photo not found on the server, in Supabase Storage or in Google Drive")
         import mimetypes
         return Response(content=data, media_type=mimetypes.guess_type(fname)[0] or "image/jpeg",
                         headers={"Cache-Control": "private, max-age=3600"})
@@ -437,14 +439,25 @@ async def agent_submit_post(request: Request, aid: int):
         photo_name = f"proof_{aid}_{int(time.time())}.jpg"
         # Safety copy -> Supabase Storage (+ local cache). Primary copy -> Google Drive (if configured).
         durable, note = storage.save_proof(photo_name, content)
+        problems = []
         if not durable:
             print(f"[Storage] {photo_name}: {note}")
+            problems.append(("storage", f"Proof photo {photo_name}: Supabase copy failed", note))
         try:
             if drive.is_configured():
                 res = drive.upload_recording_file(os.path.join(UPLOADS_DIR, photo_name), remote_name=photo_name)
                 proof_drive_url = (res or {}).get("web_view_link", "") if isinstance(res, dict) else ""
         except Exception as drive_err:
             print(f"[Drive] Submission proof upload error: {drive_err}")
+            problems.append(("drive", f"Proof photo {photo_name}: Google Drive upload failed", str(drive_err)[:500]))
+        if problems:
+            # Show up under Developer > Overview > Problems instead of only in the server log.
+            try:
+                with db.tx() as c:
+                    for cat, msg, detail in problems:
+                        db.log_app(c, cat, u, msg, detail)
+            except Exception:
+                pass
 
     with db.tx() as c:
         try:
@@ -464,6 +477,48 @@ async def agent_submit_post(request: Request, aid: int):
 def get_script_content_text(c, script_id: int, script_code: str = "") -> str:
     """Returns the complete, raw script text exactly as in the original .txt file, preserving all header lines, metadata, formatting, and dialogue roles without truncation."""
     s = c.execute("SELECT id, code, attrs, brief, language_id FROM scripts WHERE id=?", (script_id,)).fetchone()
+    return _script_text(c, s, script_id, script_code)
+
+
+def _rows_by_id(c, table, ids):
+    """SELECT * FROM <table> for many ids at once -> {id: row}."""
+    out = {}
+    for part in ops._chunks([i for i in dict.fromkeys(ids) if i is not None]):
+        ph = ",".join("?" * len(part))
+        for r in c.execute(f"SELECT * FROM {table} WHERE id IN ({ph})", tuple(part)).fetchall():
+            out[r["id"]] = r
+    return out
+
+
+def _assignments_touching(c, users=(), pairs=(), where="1=1"):
+    """Assignments where ua/ub is one of `users` or pair_id is one of `pairs`, each row once, ordered by id."""
+    seen = {}
+    cols = "id, script_id, pair_id, ua, ub, status, review_status, conf_min"
+    for col, ids in (("ua", users), ("ub", users), ("pair_id", pairs)):
+        for part in ops._chunks([i for i in dict.fromkeys(ids) if i is not None]):
+            ph = ",".join("?" * len(part))
+            for r in c.execute(f"SELECT {cols} FROM assignments WHERE {col} IN ({ph}) AND ({where})", tuple(part)).fetchall():
+                seen[r["id"]] = r
+    return [seen[k] for k in sorted(seen)]
+
+
+def script_texts_many(c, script_ids):
+    """get_script_content_text() for many scripts: two queries instead of two per script. {id: text}."""
+    ids = [i for i in dict.fromkeys(script_ids) if i is not None]
+    rows, latest = {}, {}
+    for part in ops._chunks(ids):
+        ph = ",".join("?" * len(part))
+        for r in c.execute(f"SELECT id, code, attrs, brief, language_id FROM scripts WHERE id IN ({ph})", tuple(part)).fetchall():
+            rows[r["id"]] = r
+        for r in c.execute(f"SELECT script_id, version, turns FROM script_versions WHERE script_id IN ({ph}) "
+                           f"ORDER BY script_id, version DESC", tuple(part)).fetchall():
+            latest.setdefault(r["script_id"], r)
+    return {i: _script_text(c, rows.get(i), i, rows[i]["code"] if i in rows else "", latest_version=latest.get(i, False))
+            for i in ids}
+
+
+def _script_text(c, s, script_id, script_code="", latest_version=None):
+    """latest_version: prefetched script_versions row, False if known to have none, None to query it."""
 
     # 1. Check attrs for raw_text or rel_path
     if s and s["attrs"]:
@@ -522,7 +577,10 @@ def get_script_content_text(c, script_id: int, script_code: str = "") -> str:
                                 pass
 
     # 3. Fallback to script_versions turns if no raw file text is available
-    v = c.execute("SELECT turns FROM script_versions WHERE script_id=? ORDER BY version DESC LIMIT 1", (script_id,)).fetchone()
+    if latest_version is None:
+        v = c.execute("SELECT turns FROM script_versions WHERE script_id=? ORDER BY version DESC LIMIT 1", (script_id,)).fetchone()
+    else:
+        v = latest_version or None
     content_text = ""
     if v and v["turns"]:
         try:
@@ -566,40 +624,42 @@ def build_dashboard_context(c, u, request: Request):
     else:
         selected_lid = None
 
+    # Language cards: each figure is one grouped query for all languages (was 7 queries per language).
+    def _per_lang(sql):
+        return {r["lid"]: r["v"] for r in c.execute(sql).fetchall()}
+
+    agents_by = _per_lang("SELECT language_id lid, COUNT(*) v FROM users WHERE role='participant' AND active=1 GROUP BY language_id")
+    scripts_by = _per_lang("SELECT language_id lid, COUNT(*) v FROM scripts GROUP BY language_id")
+    assigned_by = _per_lang(
+        "SELECT s.language_id lid, COUNT(DISTINCT a.script_id) v FROM assignments a JOIN scripts s ON s.id=a.script_id "
+        "WHERE a.status NOT IN ('RELEASED','ABANDONED','REJECTED') GROUP BY s.language_id")
+    completed_by = _per_lang(
+        "SELECT s.language_id lid, COUNT(DISTINCT a.script_id) v FROM assignments a JOIN scripts s ON s.id=a.script_id "
+        "WHERE (a.status IN ('SUBMITTED','COMPLETED','CONFIRMED','ACCEPTED') OR a.review_status IN ('APPROVED','ACCEPTED')) "
+        "AND a.status NOT IN ('RELEASED','ABANDONED') GROUP BY s.language_id")
+    sub_where = "a.conf_min IS NOT NULL AND a.status NOT IN ('ASSIGNED','RELEASED','ABANDONED')"
+    appr_by = _per_lang(
+        f"SELECT s.language_id lid, SUM(conf_min) v FROM assignments a JOIN scripts s ON s.id=a.script_id WHERE {sub_where} "
+        f"AND (a.review_status IN ('APPROVED','ACCEPTED') OR a.status IN ('APPROVED','ACCEPTED')) GROUP BY s.language_id")
+    rej_by = _per_lang(
+        f"SELECT s.language_id lid, SUM(conf_min) v FROM assignments a JOIN scripts s ON s.id=a.script_id WHERE {sub_where} "
+        f"AND (a.review_status='REJECTED' OR a.status='REJECTED') GROUP BY s.language_id")
+    pend_by = _per_lang(
+        f"SELECT s.language_id lid, SUM(conf_min) v FROM assignments a JOIN scripts s ON s.id=a.script_id WHERE {sub_where} "
+        f"AND (a.review_status NOT IN ('APPROVED','ACCEPTED','REJECTED') AND a.status NOT IN ('APPROVED','ACCEPTED','REJECTED')) "
+        f"GROUP BY s.language_id")
+
     lang_cards = []
     for l in lang_list:
         lid = l["id"]
-        agents_count = c.execute("SELECT COUNT(*) n FROM users WHERE role='participant' AND language_id=? AND active=1", (lid,)).fetchone()["n"]
-        total_scripts = c.execute("SELECT COUNT(*) n FROM scripts WHERE language_id=?", (lid,)).fetchone()["n"]
-        assigned_cnt = c.execute(
-            "SELECT COUNT(DISTINCT a.script_id) n FROM assignments a "
-            "JOIN scripts s ON s.id=a.script_id "
-            "WHERE s.language_id=? AND a.status NOT IN ('RELEASED','ABANDONED','REJECTED')",
-            (lid,)
-        ).fetchone()["n"]
-        completed_cnt = c.execute(
-            "SELECT COUNT(DISTINCT a.script_id) n FROM assignments a "
-            "JOIN scripts s ON s.id=a.script_id "
-            "WHERE s.language_id=? "
-            "AND (a.status IN ('SUBMITTED','COMPLETED','CONFIRMED','ACCEPTED') OR a.review_status IN ('APPROVED','ACCEPTED')) "
-            "AND a.status NOT IN ('RELEASED','ABANDONED')",
-            (lid,)
-        ).fetchone()["n"]
+        agents_count = agents_by.get(lid, 0)
+        total_scripts = scripts_by.get(lid, 0)
+        assigned_cnt = assigned_by.get(lid, 0)
+        completed_cnt = completed_by.get(lid, 0)
         pending_cnt = max(0, assigned_cnt - completed_cnt)
-
-        sub_filter = "s.language_id=? AND a.conf_min IS NOT NULL AND a.status NOT IN ('ASSIGNED','RELEASED','ABANDONED')"
-        appr_min = c.execute(
-            f"SELECT COALESCE(SUM(conf_min), 0.0) m FROM assignments a JOIN scripts s ON s.id=a.script_id WHERE {sub_filter} AND (a.review_status IN ('APPROVED','ACCEPTED') OR a.status IN ('APPROVED','ACCEPTED'))",
-            (lid,)
-        ).fetchone()["m"]
-        rej_min = c.execute(
-            f"SELECT COALESCE(SUM(conf_min), 0.0) m FROM assignments a JOIN scripts s ON s.id=a.script_id WHERE {sub_filter} AND (a.review_status='REJECTED' OR a.status='REJECTED')",
-            (lid,)
-        ).fetchone()["m"]
-        pend_rev_min = c.execute(
-            f"SELECT COALESCE(SUM(conf_min), 0.0) m FROM assignments a JOIN scripts s ON s.id=a.script_id WHERE {sub_filter} AND (a.review_status NOT IN ('APPROVED','ACCEPTED','REJECTED') AND a.status NOT IN ('APPROVED','ACCEPTED','REJECTED'))",
-            (lid,)
-        ).fetchone()["m"]
+        appr_min = appr_by.get(lid) or 0.0
+        rej_min = rej_by.get(lid) or 0.0
+        pend_rev_min = pend_by.get(lid) or 0.0
 
         appr_h = round(appr_min / 60.0, 2)
         rej_h = round(rej_min / 60.0, 2)
@@ -653,22 +713,40 @@ def build_dashboard_context(c, u, request: Request):
             (selected_lid,)
         ).fetchall()
 
+        # Bulk lookups for every agent in the language (was ~8 queries per agent).
+        dash_ids = [ag["id"] for ag in agents_raw]
+        dash_pairs = ops.active_pairs_many(c, dash_ids)
+        dash_partner_names = {r["id"]: r["name"] for r in _rows_by_id(
+            c, "users", [lst[0]["partner_id"] for lst in dash_pairs.values() if lst]).values()}
+        dash_first_pid = {uid: (lst[0]["pair_id"] if lst else None) for uid, lst in dash_pairs.items()}
+        dash_asg = _assignments_touching(c, users=dash_ids, pairs=[p for p in dash_first_pid.values() if p],
+                                         where="status NOT IN ('RELEASED','ABANDONED')")
+        dash_idx_u, dash_idx_p = {}, {}
+        for a in dash_asg:
+            for k in (a["ua"], a["ub"]):
+                dash_idx_u.setdefault(k, []).append(a)
+            if a["pair_id"] is not None:
+                dash_idx_p.setdefault(a["pair_id"], []).append(a)
+        dash_hours = ops.HoursBook(c)
+        dash_hours.prefetch(users=dash_ids)
+
         for ag in agents_raw:
             uid = ag["id"]
-            p = c.execute("SELECT * FROM pairs WHERE status='ACTIVE' AND (a=? OR b=?)", (uid, uid)).fetchone()
+            first = dash_pairs.get(uid) or []
             partner_name = ""
             part_id = None
-            pid = p["id"] if p else None
-            if p:
-                part_id = p["b"] if p["a"] == uid else p["a"]
-                p_row = c.execute("SELECT name FROM users WHERE id=?", (part_id,)).fetchone()
-                if p_row:
-                    partner_name = p_row["name"]
+            pid = dash_first_pid.get(uid)
+            if first:
+                part_id = first[0]["partner_id"]
+                if part_id in dash_partner_names:
+                    partner_name = dash_partner_names[part_id]
 
-            asg_c = c.execute("SELECT COUNT(*) n FROM assignments WHERE (ua=? OR ub=? OR pair_id=?) AND status NOT IN ('RELEASED','ABANDONED','REJECTED')", (uid, uid, pid or -1)).fetchone()["n"]
-            cmp_c = c.execute("SELECT COUNT(*) n FROM assignments WHERE (ua=? OR ub=? OR pair_id=?) AND (status IN ('SUBMITTED','COMPLETED','CONFIRMED','ACCEPTED') OR review_status IN ('APPROVED','ACCEPTED')) AND status NOT IN ('RELEASED','ABANDONED')", (uid, uid, pid or -1)).fetchone()["n"]
+            mine = {a["id"]: a for a in dash_idx_u.get(uid, []) + dash_idx_p.get(pid, [])}.values()
+            asg_c = sum(1 for a in mine if a["status"] != "REJECTED")   # rows already exclude RELEASED/ABANDONED/NULL
+            cmp_c = sum(1 for a in mine if a["status"] in ('SUBMITTED', 'COMPLETED', 'CONFIRMED', 'ACCEPTED')
+                        or a["review_status"] in ('APPROVED', 'ACCEPTED'))
             pnd_c = max(0, asg_c - cmp_c)
-            uh = ops.get_hours(c, "user", uid)
+            uh = dash_hours.user(uid)
             rec_h = uh["recorded_h"]
             acc_h = uh["accepted_h"]
             if not ag["active"]:
@@ -756,10 +834,11 @@ def build_dashboard_context(c, u, request: Request):
         ).fetchall()
 
         now = time.time()
+        history_texts = script_texts_many(c, [r["script_id"] for r in rows])
         for r in rows:
             m, s = divmod(int(round(float(r["conf_min"] or 0) * 60)), 60)
             days = max(0, int((now - r["submitted_at"]) / 86400)) if r["submitted_at"] else 0
-            dialogue = get_script_content_text(c, r["script_id"], r["code"])
+            dialogue = history_texts[r["script_id"]]
 
             rev_stat = (r["review_status"] or "").upper()
             raw_stat = (r["status"] or "").upper()
@@ -887,10 +966,27 @@ def build_management_context(c, u, request: Request, active_tab: str = "agents")
         "WHERE u.role='participant' AND u.language_id IN (SELECT id FROM _sel) ORDER BY u.active DESC, u.id ASC",
         ()
     ).fetchall()
+    # Everything per-agent is fetched once up front (it used to be ~8 queries per agent).
+    hours = ops.HoursBook(c)
+    agent_ids = [ag["id"] for ag in agents_raw]
+    pairs_by_uid = ops.active_pairs_many(c, agent_ids)
+    partner_ids = {x["partner_id"] for lst in pairs_by_uid.values() for x in lst}
+    users_by_id = _rows_by_id(c, "users", partner_ids)
+    hours.prefetch(users=list(agent_ids) + list(partner_ids))
+    first_pid = {uid: (lst[0]["pair_id"] if lst else None) for uid, lst in pairs_by_uid.items()}
+    agent_asg = _assignments_touching(c, users=agent_ids, pairs=[p for p in first_pid.values() if p],
+                                      where="status NOT IN ('RELEASED','ABANDONED')")
+    agent_asg_by_id = {a["id"]: a for a in agent_asg}
+    agent_asg_idx_u, agent_asg_idx_p = {}, {}
+    for a in agent_asg:
+        for k in (a["ua"], a["ub"]):
+            agent_asg_idx_u.setdefault(k, set()).add(a["id"])
+        agent_asg_idx_p.setdefault(a["pair_id"], set()).add(a["id"])
+    agent_asg_idx_p.pop(None, None)
     agents = []
     for ag in agents_raw:
         uid = ag["id"]
-        my_pairs = ops.active_pairs_for(c, uid)
+        my_pairs = pairs_by_uid.get(uid, [])
         p = {"id": my_pairs[0]["pair_id"]} if my_pairs else None
         partner_id = my_pairs[0]["partner_id"] if my_pairs else None
         partner_name = my_pairs[0]["partner_name"] if my_pairs else ""
@@ -902,30 +998,31 @@ def build_management_context(c, u, request: Request, active_tab: str = "agents")
         partner_status = "Paired"
         pid = p["id"] if p else None
         if partner_id:
-            p_row = c.execute("SELECT * FROM users WHERE id=?", (partner_id,)).fetchone()
+            p_row = users_by_id.get(partner_id)
             if p_row:
                 partner_email = p_row["email"] or "-"
                 partner_gender = p_row["gender"] or "-"
                 partner_avail = p_row["availability"] or "All day"
                 partner_status = "Active" if p_row["active"] else "Inactive"
-                partner_rec_h = ops.get_hours(c, "user", partner_id)["recorded_h"]
-        pair_ids_all = [x["pair_id"] for x in my_pairs]
+                partner_rec_h = hours.user(partner_id)["recorded_h"]
         partner_cards = []
         for x in my_pairs:
-            pr = c.execute("SELECT * FROM users WHERE id=?", (x["partner_id"],)).fetchone()
+            pr = users_by_id.get(x["partner_id"])
             if not pr:
                 continue
             partner_cards.append({
                 "name": pr["name"], "phone": pr["phone"] or "-", "email": pr["email"] or "-", "gender": pr["gender"] or "-",
                 "availability": pr["availability"] or "All day", "status": "Active" if pr["active"] else "Inactive",
-                "recorded_h": ops.get_hours(c, "user", pr["id"])["recorded_h"], "language": ag["lang_name"] or "-",
+                "recorded_h": hours.user(pr["id"])["recorded_h"], "language": ag["lang_name"] or "-",
             })
 
         # Accurate individual stats across all assignments for this agent (persists across pair deletion/recreation)
-        asg_c = c.execute("SELECT COUNT(*) n FROM assignments WHERE (ua=? OR ub=? OR pair_id=?) AND status NOT IN ('RELEASED','ABANDONED')", (uid, uid, pid or -1)).fetchone()["n"]
-        cmp_c = c.execute("SELECT COUNT(*) n FROM assignments WHERE (ua=? OR ub=? OR pair_id=?) AND (status IN ('SUBMITTED','COMPLETED','CONFIRMED','ACCEPTED') OR review_status IN ('APPROVED','ACCEPTED')) AND status NOT IN ('RELEASED','ABANDONED')", (uid, uid, pid or -1)).fetchone()["n"]
+        mine = [agent_asg_by_id[i] for i in (agent_asg_idx_u.get(uid, set()) | agent_asg_idx_p.get(pid, set()))]
+        asg_c = len(mine)
+        cmp_c = sum(1 for a in mine if a["status"] in ('SUBMITTED', 'COMPLETED', 'CONFIRMED', 'ACCEPTED')
+                    or a["review_status"] in ('APPROVED', 'ACCEPTED'))
         pnd_c = max(0, asg_c - cmp_c)
-        uh = ops.get_hours(c, "user", uid)
+        uh = hours.user(uid)
 
         agents.append({
             "id": uid,
@@ -1030,25 +1127,30 @@ def build_management_context(c, u, request: Request, active_tab: str = "agents")
         "WHERE s.language_id IN (SELECT id FROM _sel) ORDER BY s.id DESC",
         ()
     ).fetchall()
-    scripts_list = []
-    for sc in scripts_raw:
-        asg = c.execute(
-            "SELECT p.id as pid, p.availability as p_avail, "
+    # Latest open assignment per script, all scripts in one query (was one query per script).
+    latest_asg = {}
+    for r in c.execute(
+            "SELECT a.script_id as sid, p.id as pid, p.availability as p_avail, "
             "u1.id as p_uid_a, u1.name as p_name_a, u1.phone as p_phone_a, "
             "u2.id as p_uid_b, u2.name as p_name_b, u2.phone as p_phone_b, "
             "ua.id as uid_a, ua.name as name_a, ua.phone as phone_a, "
             "ub.id as uid_b, ub.name as name_b, ub.phone as phone_b, "
             "a.conf_min, a.status as a_status, a.review_status "
             "FROM assignments a "
+            "JOIN scripts s ON s.id=a.script_id "
             "LEFT JOIN pairs p ON p.id=a.pair_id "
             "LEFT JOIN users u1 ON u1.id=p.a "
             "LEFT JOIN users u2 ON u2.id=p.b "
             "LEFT JOIN users ua ON ua.id=a.ua "
             "LEFT JOIN users ub ON ub.id=a.ub "
-            "WHERE a.script_id=? AND a.status NOT IN ('RELEASED','ABANDONED','REJECTED') "
-            "ORDER BY a.id DESC LIMIT 1",
-            (sc["id"],)
-        ).fetchone()
+            "WHERE s.language_id IN (SELECT id FROM _sel) AND a.status NOT IN ('RELEASED','ABANDONED','REJECTED') "
+            "ORDER BY a.script_id, a.id DESC", ()).fetchall():
+        latest_asg.setdefault(r["sid"], r)
+    hours.prefetch(pairs=[r["pid"] for r in latest_asg.values() if r["pid"]])
+    # Script text is not embedded in the page any more: the popup fetches /admin/scripts/text on open.
+    scripts_list = []
+    for sc in scripts_raw:
+        asg = latest_asg.get(sc["id"])
         pair_phone_a = "-"
         pair_phone_b = "-"
         pair_avail = "All day"
@@ -1068,7 +1170,7 @@ def build_management_context(c, u, request: Request, active_tab: str = "agents")
             pair_phone_b = asg["p_phone_b"] or asg["phone_b"] or "-"
             pair_avail = asg["p_avail"] or "All day"
             if asg["pid"]:
-                pair_rec_h = ops.get_hours(c, "pair", asg["pid"])["recorded_h"]
+                pair_rec_h = hours.pair(asg["pid"])["recorded_h"]
             if na and nb:
                 pair_label = f"{na} & {nb}"
             elif na or nb:
@@ -1099,7 +1201,7 @@ def build_management_context(c, u, request: Request, active_tab: str = "agents")
             time_taken = "-"
             status_disp = "AVAILABLE" if sc["status"] in ("READY", "AVAILABLE") else sc["status"]
 
-        dialogue = get_script_content_text(c, sc["id"], sc["code"])
+        dialogue = ""
         scripts_list.append({
             "id": sc["id"],
             "language_id": sc["language_id"],
@@ -1146,22 +1248,29 @@ def build_management_context(c, u, request: Request, active_tab: str = "agents")
         "WHERE p.language_id IN (SELECT id FROM _sel) AND p.status='ACTIVE' ORDER BY p.id DESC",
         ()
     ).fetchall()
+    hours.prefetch(users=[p["a"] for p in pairs_raw] + [p["b"] for p in pairs_raw], pairs=[p["id"] for p in pairs_raw])
+    pair_asg = _assignments_touching(c, users=[p["a"] for p in pairs_raw] + [p["b"] for p in pairs_raw],
+                                     pairs=[p["id"] for p in pairs_raw])
+    pair_asg_by_pid, pair_asg_by_couple = {}, {}
+    for a in pair_asg:
+        pair_asg_by_pid.setdefault(a["pair_id"], []).append(a)
+        pair_asg_by_couple.setdefault(frozenset((a["ua"], a["ub"])), []).append(a)
     pairs = []
     for p in pairs_raw:
         pid = p["id"]
         # Joint stats for this pair (preserves history if pair was dropped and recreated)
-        a_c = c.execute(
-            "SELECT COUNT(*) n FROM assignments WHERE (pair_id=? OR ((ua=? AND ub=?) OR (ua=? AND ub=?))) AND status NOT IN ('RELEASED','ABANDONED','REJECTED')",
-            (pid, p["a"], p["b"], p["b"], p["a"])
-        ).fetchone()["n"]
-        c_c = c.execute(
-            "SELECT COUNT(*) n FROM assignments WHERE (pair_id=? OR ((ua=? AND ub=?) OR (ua=? AND ub=?))) AND (status IN ('SUBMITTED','COMPLETED','CONFIRMED','ACCEPTED') OR review_status IN ('APPROVED','ACCEPTED'))",
-            (pid, p["a"], p["b"], p["b"], p["a"])
-        ).fetchone()["n"]
+        joint = {a["id"]: a for a in pair_asg_by_pid.get(pid, [])}
+        for a in pair_asg_by_couple.get(frozenset((p["a"], p["b"])), []):
+            if (a["ua"], a["ub"]) in ((p["a"], p["b"]), (p["b"], p["a"])):
+                joint[a["id"]] = a
+        a_c = sum(1 for a in joint.values()   # NULL status never matches NOT IN in SQL; keep that
+                  if a["status"] is not None and a["status"] not in ('RELEASED', 'ABANDONED', 'REJECTED'))
+        c_c = sum(1 for a in joint.values() if a["status"] in ('SUBMITTED', 'COMPLETED', 'CONFIRMED', 'ACCEPTED')
+                  or a["review_status"] in ('APPROVED', 'ACCEPTED'))
         p_c = max(0, a_c - c_c)
-        ph = ops.get_hours(c, "pair", pid)
-        ha = ops.get_hours(c, "user", p["a"])
-        hb = ops.get_hours(c, "user", p["b"])
+        ph = hours.pair(pid)
+        ha = hours.user(p["a"])
+        hb = hours.user(p["b"])
 
         pairs.append({
             "id": pid,
@@ -1198,10 +1307,14 @@ def build_management_context(c, u, request: Request, active_tab: str = "agents")
         "WHERE u.role='participant' AND u.language_id IN (SELECT id FROM _sel) AND u.active=1 ORDER BY u.name ASC",
         ()
     ).fetchall()
+    manual_ids = [ag["id"] for ag in all_active_agents]
+    manual_pairs = ops.active_pairs_many(c, [i for i in manual_ids if i not in pairs_by_uid])
+    manual_pairs.update({i: pairs_by_uid[i] for i in manual_ids if i in pairs_by_uid})
+    hours.prefetch(users=manual_ids)
     manual_agents = []
     for ag in all_active_agents:
-        ap = ops.active_pairs_for(c, ag["id"])
-        ag_h = ops.get_hours(c, "user", ag["id"])
+        ap = manual_pairs[ag["id"]]
+        ag_h = hours.user(ag["id"])
         rec_h = ag_h["recorded_h"]
         pct = min(100, round(ag_h["committed_h"] / (ag_h["cap_h"] or 15.0) * 100))
         names = ", ".join(x["partner_name"] for x in ap)
@@ -1305,10 +1418,11 @@ def build_management_context(c, u, request: Request, active_tab: str = "agents")
 
     reports = []
     now = time.time()
+    hours.prefetch(users=[r["uid_a"] for r in reports_raw if r["uid_a"]] + [r["uid_b"] for r in reports_raw if r["uid_b"]])
     for r in reports_raw:
         m, s = divmod(int(round(float(r["conf_min"] or 0) * 60)), 60)
         days = max(0, int((now - r["submitted_at"]) / 86400)) if r["submitted_at"] else 0
-        dialogue = get_script_content_text(c, r["script_id"], r["script_code"])
+        dialogue = ""  # loaded on demand by the popup
         taxonomy = f"{r['domain']} > {r['subdomain']} > {r['specialisation']}"
         rev_note = (r["review_note"] or "").strip()
         if "Supervisor" in rev_note:
@@ -1322,8 +1436,8 @@ def build_management_context(c, u, request: Request, active_tab: str = "agents")
         else:
             disp_reviewer = "-"
 
-        rec_a_m = ops.get_hours(c, "user", r["uid_a"])["recorded_min"] if r["uid_a"] else 0.0
-        rec_b_m = ops.get_hours(c, "user", r["uid_b"])["recorded_min"] if r["uid_b"] else 0.0
+        rec_a_m = hours.user(r["uid_a"])["recorded_min"] if r["uid_a"] else 0.0
+        rec_b_m = hours.user(r["uid_b"])["recorded_min"] if r["uid_b"] else 0.0
 
         reports.append({
             "id": r["id"],
@@ -1597,13 +1711,25 @@ async def admin_kpi_rows(request: Request):
                 return JSONResponse(empty)
             cond = {"ag_total": "1=1", "ag_active": "u.active=1", "ag_inactive": "u.active=0"}.get(kind, "u.active=1")
             rows, meta = [], []
-            for r in c.execute("SELECT u.id, u.name, u.code, u.gender, u.availability, u.active, u.language_id lid, l.name lang FROM users u "
+            people = c.execute("SELECT u.id, u.name, u.code, u.gender, u.availability, u.active, u.language_id lid, l.name lang FROM users u "
                                "LEFT JOIN languages l ON l.id=u.language_id WHERE u.role='participant' AND u.language_id IN (%s) AND %s "
-                               "ORDER BY u.name" % (ph, cond), lids).fetchall():
-                partners = [x["pn"] for x in c.execute(
-                    "SELECT CASE WHEN p.a=? THEN ub.name ELSE ua.name END pn FROM pairs p "
-                    "LEFT JOIN users ua ON ua.id=p.a LEFT JOIN users ub ON ub.id=p.b "
-                    "WHERE (p.a=? OR p.b=?) AND p.status='ACTIVE'", (r["id"], r["id"], r["id"])).fetchall()]
+                               "ORDER BY u.name" % (ph, cond), lids).fetchall()
+            # Partner names for everyone at once (was one query per person).
+            partners_of = {r["id"]: [] for r in people}
+            act = {}
+            for part in ops._chunks(list(partners_of)):
+                pq = ",".join("?" * len(part))
+                for p in c.execute(f"SELECT p.id, p.a, p.b, ua.name na, ub.name nb FROM pairs p "
+                                   f"LEFT JOIN users ua ON ua.id=p.a LEFT JOIN users ub ON ub.id=p.b "
+                                   f"WHERE (p.a IN ({pq}) OR p.b IN ({pq})) AND p.status='ACTIVE'", tuple(part) * 2).fetchall():
+                    act[p["id"]] = p
+            for pid_ in sorted(act):
+                p = act[pid_]
+                for uid_ in ((p["a"],) if p["a"] == p["b"] else (p["a"], p["b"])):
+                    if uid_ in partners_of:
+                        partners_of[uid_].append(p["nb"] if p["a"] == uid_ else p["na"])
+            for r in people:
+                partners = partners_of[r["id"]]
                 if kind == "ag_paired" and not partners:
                     continue
                 if kind == "ag_unpaired" and partners:
@@ -1619,17 +1745,25 @@ async def admin_kpi_rows(request: Request):
             if kind not in titles:
                 return JSONResponse(empty)
             rows, meta = [], []
-            for p in c.execute("SELECT p.id, p.a, p.b, p.status, p.availability, p.language_id lid, l.name lang, ua.name na, ub.name nb FROM pairs p "
-                               "LEFT JOIN users ua ON ua.id=p.a LEFT JOIN users ub ON ub.id=p.b "
-                               "LEFT JOIN languages l ON l.id=p.language_id WHERE p.language_id IN (%s) AND p.status='ACTIVE' ORDER BY p.id DESC" % ph, lids).fetchall():
-                h = ops.get_hours(c, "pair", p["id"])
+            plist = c.execute("SELECT p.id, p.a, p.b, p.status, p.availability, p.language_id lid, l.name lang, ua.name na, ub.name nb FROM pairs p "
+                              "LEFT JOIN users ua ON ua.id=p.a LEFT JOIN users ub ON ub.id=p.b "
+                              "LEFT JOIN languages l ON l.id=p.language_id WHERE p.language_id IN (%s) AND p.status='ACTIVE' ORDER BY p.id DESC" % ph, lids).fetchall()
+            # Hours and open-assignment counts for every pair at once (was 4 queries per pair).
+            pair_hours = ops.hours_many(c, "pair", [p["id"] for p in plist])
+            open_by_pair = {}
+            for part in ops._chunks([p["id"] for p in plist]):
+                pq = ",".join("?" * len(part))
+                for r in c.execute(f"SELECT pair_id, COUNT(*) n FROM assignments WHERE pair_id IN ({pq}) "
+                                   f"AND status NOT IN ('RELEASED','ABANDONED','REJECTED') GROUP BY pair_id", tuple(part)).fetchall():
+                    open_by_pair[r["pair_id"]] = r["n"]
+            for p in plist:
+                h = pair_hours[p["id"]]
                 limit = bool(h["recorded_h"] >= 7.5)
                 if kind == "pr_active" and not (p["status"] == "ACTIVE" and not limit):
                     continue
                 if kind == "pr_limit" and not limit:
                     continue
-                n_asg = c.execute("SELECT COUNT(*) n FROM assignments WHERE pair_id=? AND status NOT IN ('RELEASED','ABANDONED','REJECTED')",
-                                  (p["id"],)).fetchone()["n"]
+                n_asg = open_by_pair.get(p["id"], 0)
                 rows.append([p["na"] or "?", p["nb"] or "?", p["lang"] or "-", p["availability"] or "All day", n_asg,
                              f"{h['recorded_h']:.1f} h", f"{h['accepted_h']:.1f} h", "LIMIT_REACHED" if limit else p["status"]])
                 meta.append({"pair": p["id"], "href": f"/admin/pairs?lang={p['lid']}"})
@@ -1711,6 +1845,21 @@ async def admin_scripts_route(request: Request):
     with db.ro() as c:
         ctx = build_management_context(c, u, request, active_tab="scripts")
     return render(request, "admin_management.html", u, **ctx)
+
+
+@router.get("/admin/scripts/text")
+async def admin_script_text(request: Request):
+    """Full text of one script, loaded when its popup opens (pages no longer embed every script's text)."""
+    u = gate(request, "admin", "lead", "supervisor", "developer")
+    code = (request.query_params.get("code") or "").strip()
+    with db.ro() as c:
+        s = c.execute("SELECT id, code, language_id FROM scripts WHERE code=?", (code,)).fetchone()
+        if not s:
+            return JSONResponse({"error": "Script not found."}, status_code=404)
+        if u["role"] in ("lead", "supervisor") and s["language_id"] not in list(u["lang_ids"]):
+            return JSONResponse({"error": "Not allowed for this language."}, status_code=403)
+        text = get_script_content_text(c, s["id"], s["code"])
+    return JSONResponse({"code": s["code"], "text": text})
 
 
 @router.get("/admin/scripts/tree")

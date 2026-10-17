@@ -49,7 +49,7 @@
               {% if s.active %}Deactivate{% else %}Activate{% endif %}
             </button>
           </form>
-          <button type="button" class="btn btn-secondary btn-sm" style="height:26px;padding:0 6px;" onclick="openSupLangs({{ s.id }}, '{{ s.name }}', {{ s.lang_ids|tojson }})">Languages</button>
+          <button type="button" class="btn btn-secondary btn-sm" style="height:26px;padding:0 6px;" onclick="openSupLangs({{ s.id }}, '{{ s.name }}', {{ s.lang_ids|tojson|forceescape }})">Languages</button>
           {% if s.active %}<a class="btn btn-secondary btn-sm" style="height:26px;padding:0 6px;line-height:26px;" href="/admin/supervisors/login_as/{{ s.id }}" title="Open this supervisor's view">View</a>{% endif %}
           <button type="button" class="btn btn-secondary btn-sm" style="height:26px;padding:0 6px;" onclick="editSupModal({{ s.id }}, '{{ s.name }}', '{{ s.phone }}', '{{ s.email }}', {{ s.language_id or 0 }})">Edit</button>
           <button type="button" class="btn btn-danger btn-sm" style="height:26px;padding:0 6px;" onclick="openDeleteModal('/admin/supervisors/delete/{{ s.id }}', 'Delete Supervisor {{ s.name }}', 'Deleting a supervisor requires a mandatory reason.')">Delete</button>
