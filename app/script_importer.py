@@ -541,6 +541,41 @@ def find_duplicate_script(c, language_id: int, filename: str, content: str, meta
     return None
 
 
+DEFAULT_DOMAINS = "Healthcare,BFSI"
+
+
+def allowed_domains(c) -> dict:
+    """{lowercase: canonical} from the 'allowed_domains' setting (default Healthcare, BFSI)."""
+    raw = ""
+    try:
+        r = c.execute("SELECT v FROM settings WHERE k='allowed_domains'").fetchone()
+        raw = (r["v"] if r else "") or ""
+    except Exception:
+        raw = ""
+    names = [x.strip() for x in (raw or DEFAULT_DOMAINS).split(",") if x.strip()]
+    return {n.lower(): n for n in names}
+
+
+def resolve_domain(c, meta: dict, content: str):
+    """(canonical domain, "") or ("", reason to skip). The importer used to trust the 2nd word of the file name, so a
+    name like marathi_kannada_... created a 'kannada' domain. Only allowed domains are accepted; a 'Taxonomy:'
+    header inside the file is used when the file name's domain is not valid."""
+    allowed = allowed_domains(c)
+    from_name = (meta.get("domain") or "").strip()
+    if from_name.lower() in allowed:
+        return allowed[from_name.lower()], ""
+    for line in (content or "").splitlines()[:25]:
+        clean = line.strip().lstrip("#").strip()
+        if clean.lower().startswith("taxonomy:"):
+            first = clean.split(":", 1)[1].split("/")[0].split(">")[0].strip()
+            if first.lower() in allowed:
+                return allowed[first.lower()], ""
+    shown = ", ".join(allowed.values())
+    return "", (f"Unknown domain '{from_name}' in the file name (allowed: {shown}). "
+                f"Rename the file as language_domain_subdomain_specialisation_title.txt, "
+                f"e.g. marathi_Healthcare_Doctor-Patient_General-Physician_fever.txt")
+
+
 def import_script_file(c, file_path: str | Path, target_lang_id: int | None = None, status: str = "READY") -> dict:
     """Imports a single script file into scripts and script_versions tables.
     
@@ -576,6 +611,15 @@ def import_script_file(c, file_path: str | Path, target_lang_id: int | None = No
             "script_id": dup.get("id"),
             "file": p.name
         }
+
+    # Only real domains (Healthcare, BFSI by default). Runs after the duplicate check so duplicates are still
+    # reported as duplicates; a non-duplicate with a bad domain is skipped instead of creating a bogus domain.
+    domain, why = resolve_domain(c, meta, content)
+    if not domain:
+        return {"status": "skipped", "reason": why, "file": p.name}
+    if domain != meta["domain"]:
+        meta["prefix"] = meta["prefix"][:1] + (get_taxonomy_letter(domain) or meta["prefix"][1:2]) + meta["prefix"][2:]
+        meta["domain"] = domain
 
     # Calculate fingerprints and dialogue turns
     fp = compute_content_fingerprint(content)
