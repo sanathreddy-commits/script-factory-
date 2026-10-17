@@ -1440,7 +1440,11 @@ def get_portal_access_items(c) -> list:
             items = json.loads(portal_access_raw)
         except Exception:
             items = []
-    if not items:
+        if not isinstance(items, list):
+            items = []
+    # Sample links only on a fresh install. Once the list has been saved, an empty list means the
+    # admin deleted everything, so it must stay empty (it used to bring the samples back).
+    if not portal_access_raw.strip():
         base_client = client_url.strip() if (client_url and client_url.strip()) else "https://client-portal.recording-system.com"
         items = [
             {

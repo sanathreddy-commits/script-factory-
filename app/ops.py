@@ -924,8 +924,9 @@ def pick_script(c, L, pair, u1, u2, allow_test, only):
     last_ua = last["ua"] if last else None
     # Simple fair distribution: group by subdomain, pick from least-assigned group
     tot, used_count = {}, {}
-    for r in c.execute("SELECT subdomain, specialisation, COUNT(*) n, SUM(EXISTS(SELECT 1 FROM assignments a WHERE a.script_id=scripts.id"
-                       " AND a.status NOT IN ('RELEASED','ABANDONED','REJECTED'))) u FROM scripts WHERE language_id=? GROUP BY 1,2", (L["id"],)):
+    # CASE ... THEN 1 ELSE 0: Postgres cannot sum a boolean (SQLite can); see tests/test_sql_portability.py.
+    for r in c.execute("SELECT subdomain, specialisation, COUNT(*) n, SUM(CASE WHEN EXISTS(SELECT 1 FROM assignments a WHERE a.script_id=scripts.id"
+                       " AND a.status NOT IN ('RELEASED','ABANDONED','REJECTED')) THEN 1 ELSE 0 END) u FROM scripts WHERE language_id=? GROUP BY 1,2", (L["id"],)):
         tot[(r["subdomain"], r["specialisation"])] = r["n"]
         used_count[(r["subdomain"], r["specialisation"])] = r["u"] or 0
     groups = {}
@@ -1294,9 +1295,9 @@ def coverage(c, lang_id):
     rows = []
     for r in c.execute(
             "SELECT s.subdomain, s.specialisation, COUNT(*) planned,"
-            " SUM(s.status='APPROVED' OR s.status='IN_REVIEW') made,"
-            " SUM(EXISTS(SELECT 1 FROM assignments a WHERE a.script_id=s.id AND a.status NOT IN ('RELEASED','ABANDONED'))) assigned,"
-            " SUM(EXISTS(SELECT 1 FROM assignments a WHERE a.script_id=s.id AND a.status='CONFIRMED')) confirmed"
+            " SUM(CASE WHEN s.status IN ('APPROVED','IN_REVIEW') THEN 1 ELSE 0 END) made,"
+            " SUM(CASE WHEN EXISTS(SELECT 1 FROM assignments a WHERE a.script_id=s.id AND a.status NOT IN ('RELEASED','ABANDONED')) THEN 1 ELSE 0 END) assigned,"
+            " SUM(CASE WHEN EXISTS(SELECT 1 FROM assignments a WHERE a.script_id=s.id AND a.status='CONFIRMED') THEN 1 ELSE 0 END) confirmed"
             " FROM scripts s WHERE s.language_id=? GROUP BY 1,2 ORDER BY MIN(s.seq)", (lang_id,)):
         rows.append(dict(r))
     return rows

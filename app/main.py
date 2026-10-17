@@ -1775,8 +1775,10 @@ async def lang_page(request: Request, lid: int):
             raise HTTPException(404, "no such language")
         quotas = c.execute("SELECT * FROM quotas WHERE language_id=?", (lid,)).fetchall()
         d, a = ops.funnel(c, lid)
-        waves = c.execute("SELECT wave, COUNT(*) n, SUM(status='PLANNED') planned, SUM(status IN ('QUEUED','GENERATING')) running,"
-                          " SUM(status='IN_REVIEW') review, SUM(status='APPROVED') approved, SUM(status='NEEDS_HUMAN') human"
+        waves = c.execute("SELECT wave, COUNT(*) n, SUM(CASE WHEN status='PLANNED' THEN 1 ELSE 0 END) planned,"
+                          " SUM(CASE WHEN status IN ('QUEUED','GENERATING') THEN 1 ELSE 0 END) running,"
+                          " SUM(CASE WHEN status='IN_REVIEW' THEN 1 ELSE 0 END) review, SUM(CASE WHEN status='APPROVED' THEN 1 ELSE 0 END) approved,"
+                          " SUM(CASE WHEN status='NEEDS_HUMAN' THEN 1 ELSE 0 END) human"
                           " FROM scripts WHERE language_id=? GROUP BY wave ORDER BY wave", (lid,)).fetchall()
         est = {w["wave"]: P.estimate(c, lid, w["wave"]) for w in waves if w["planned"]}
         days = c.execute("SELECT date(a.updated_at,'unixepoch','+5 hours','+30 minutes') d, COUNT(*) n FROM assignments a JOIN scripts s ON s.id=a.script_id"

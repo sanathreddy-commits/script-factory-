@@ -240,6 +240,21 @@
     </div>
   </div>
 
+  <!-- Domain breakdown (Healthcare / BFSI / ...), filled from /admin/scripts/tree -->
+  <style>
+    .sf-dom{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;margin-bottom:16px}
+    .sf-dom-card{background:#fff;border:1px solid var(--border);border-radius:10px;padding:12px 14px}
+    .sf-dom-top{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+    .sf-dom-name{font-weight:700;font-size:14px;color:var(--text)}
+    .sf-dom-total{font-size:20px;font-weight:800;color:var(--text)}
+    .sf-nums{display:flex;gap:10px;flex-wrap:wrap;font-size:11.5px;color:#64748B;margin:4px 0 6px}
+    .sf-nums b{font-weight:700}
+    .sf-bar{display:flex;height:7px;border-radius:999px;overflow:hidden;background:#E2E8F0}
+    .sf-bar span{display:block;height:100%}
+    .sf-pct{font-size:11px;color:#64748B;margin-top:4px}
+  </style>
+  <div id="sfDomainSummary" class="sf-dom"></div>
+
   <div style="display:flex;gap:0;border:1px solid var(--border);border-radius:7px;overflow:hidden;width:fit-content;margin-bottom:10px;">
     <button type="button" id="sfViewFolders" class="btn btn-sm btn-primary" style="border:0;border-radius:0;font-weight:600;" onclick="sfSetScriptView('folder')">📁 Folders</button>
     <button type="button" id="sfViewList" class="btn btn-sm btn-secondary" style="border:0;border-radius:0;font-weight:600;" onclick="sfSetScriptView('list')">☰ List</button>
@@ -375,8 +390,37 @@
       if(fc) fc.style.display = folders?'none':'';
       document.getElementById('sfViewFolders').className = 'btn btn-sm ' + (folders?'btn-primary':'btn-secondary');
       document.getElementById('sfViewList').className = 'btn btn-sm ' + (folders?'btn-secondary':'btn-primary');
-      if(folders){ if(ITEMS===null) loadTree(); else render(); }
+      // The tree also feeds the domain breakdown, so load it in both views.
+      if(ITEMS===null) loadTree(); else render();
     };
+    var C_DONE='#2563EB', C_ASG='#F59E0B', C_AV='#10B981';
+    function counts(rows){
+      var c={total:rows.length, avail:0, asg:0, done:0};
+      rows.forEach(function(r){ if(r.status==='Completed') c.done++; else if(r.status==='Assigned') c.asg++; else if(r.status==='Available') c.avail++; });
+      return c;
+    }
+    function bar(c){
+      if(!c.total) return '<div class="sf-bar"></div>';
+      function seg(n,col){ return n ? '<span style="width:'+(100*n/c.total)+'%;background:'+col+';"></span>' : ''; }
+      return '<div class="sf-bar" title="'+c.done+' done, '+c.asg+' assigned, '+c.avail+' available">'+seg(c.done,C_DONE)+seg(c.asg,C_ASG)+seg(c.avail,C_AV)+'</div>';
+    }
+    function nums(c){
+      return '<div class="sf-nums"><span><b style="color:'+C_AV+'">'+c.avail+'</b> available</span><span><b style="color:'+C_ASG+'">'+c.asg+'</b> assigned</span><span><b style="color:'+C_DONE+'">'+c.done+'</b> done</span></div>';
+    }
+    function renderSummary(){
+      var box=document.getElementById('sfDomainSummary');
+      if(!box||!ITEMS) return;
+      var scope = path.length ? ITEMS.filter(function(it){ return it.lang===path[0]; }) : ITEMS;
+      var groups={};
+      scope.forEach(function(it){ (groups[it.domain]=groups[it.domain]||[]).push(it); });
+      var keys=Object.keys(groups).sort();
+      if(!keys.length){ box.innerHTML=''; return; }
+      box.innerHTML = keys.map(function(k){
+        var c=counts(groups[k]);
+        return '<div class="sf-dom-card"><div class="sf-dom-top"><span class="sf-dom-name">'+esc(k)+(path.length?' <span class="muted-text" style="font-weight:500;font-size:12px;">· '+esc(path[0])+'</span>':'')+'</span><span class="sf-dom-total">'+c.total+'</span></div>'
+          + nums(c) + bar(c) + '<div class="sf-pct">'+Math.round(100*c.done/c.total)+'% done</div></div>';
+      }).join('');
+    }
     function loadTree(){
       document.getElementById('sfFolderBody').innerHTML = '<div class="muted-text" style="padding:20px;">Loading folders…</div>';
       fetch('/admin/scripts/tree?lang=' + encodeURIComponent(LANG_PARAM), {credentials:'same-origin'})
@@ -398,6 +442,7 @@
     }
     function render(){
       if(!ITEMS) return;
+      renderSummary();
       var bc=document.getElementById('sfBreadcrumb');
       var crumbs=['📁 All scripts'].concat(path);
       bc.innerHTML = crumbs.map(function(name,i){
@@ -414,11 +459,12 @@
       var html='';
       if(keys.length){
         html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px;">' + keys.map(function(k){
-          var rows=groups[k], avail=rows.filter(function(r){return r.status==='Available';}).length, done=rows.filter(function(r){return r.status==='Completed';}).length;
+          var rows=groups[k], cnt=counts(rows);
           return '<a href="javascript:void(0)" onclick="sfInto('+esc(JSON.stringify(k))+')" class="card" style="position:relative;display:block;text-decoration:none;color:inherit;padding:14px;border-top:4px solid var(--primary,#0F766E);border-radius:10px;">'
             +(CAN_DEL?'<button type="button" title="Delete every script in this folder" onclick="event.stopPropagation(); event.preventDefault(); sfDelFolder('+esc(JSON.stringify(k))+')" style="position:absolute;top:8px;right:8px;border:1px solid #FECACA;background:#FEF2F2;color:#B91C1C;border-radius:6px;padding:2px 6px;cursor:pointer;font-size:12px;">🗑</button>':'')
             +'<div style="font-size:1.4rem;">📁</div><div style="font-weight:700;margin:4px 0;">'+esc(k)+'</div>'
-            +'<div class="muted-text" style="font-size:12px;">'+rows.length+' scripts · '+avail+' available · '+done+' done</div></a>';
+            +'<div style="font-size:12px;color:var(--text);font-weight:600;">'+rows.length+' scripts</div>'
+            + nums(cnt) + bar(cnt) + '</a>';
         }).join('') + '</div>';
       }
       if(loose.length){ html += (keys.length?'<div class="muted-text" style="margin-top:14px;font-weight:600;font-size:12px;">Scripts here</div>':'') + scriptTable(loose); }
