@@ -1573,6 +1573,8 @@ def import_commit(c, actor, batch_id):
                   " spec_version=?, needs_review=?, is_test=0, updated_at=? WHERE id=?",
                   ("IN_REVIEW" if nr else "APPROVED", it["words"], V.pack(V.shingle_set(it["turns"])), V.opening_key(it["turns"]),
                    int(S["spec_version"]), nr, now, s["id"]))
+        from .script_importer import shingles_changed
+        shingles_changed()   # duplicate-check cache must not keep the old fingerprint
         if not nr:
             P.backup_script(c, s["id"])
         done_n += 1

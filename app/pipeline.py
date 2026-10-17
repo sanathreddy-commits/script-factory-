@@ -10,6 +10,12 @@ from . import config, db, llm
 from . import taxonomy as T
 from . import validators as V
 
+
+def _shingles_changed():
+    """Tell the upload duplicate-check cache that a fingerprint was rewritten (see script_importer)."""
+    from .script_importer import shingles_changed
+    shingles_changed()
+
 BEAT_FRACS = [0.20, 0.30, 0.30, 0.20]
 MASTER = """You write ONE natural spoken two-person conversation for a speech-data project, in the target language and script.
 Rules: speaker A and speaker B only; plain spoken words (no stage directions, no brackets, no placeholders, no emojis);
@@ -261,6 +267,7 @@ def store_result(job, script, L, attrs, turns, jd, key, S):
                   " judge=?, needs_review=?, is_test=?, reject_reason=NULL, updated_at=? WHERE id=?",
                   (status, ver, wc, V.pack(V.shingle_set(turns)), V.opening_key(turns), pv, int(S["spec_version"]),
                    json.dumps(jd) if jd else None, nr, 1 if key["provider"] == "stub" else 0, time.time(), script["id"]))
+        _shingles_changed()
         c.execute("UPDATE jobs SET status='DONE', error=NULL, updated_at=? WHERE id=?", (time.time(), job["id"]))
         if status == "APPROVED":
             backup_script(c, script["id"])
@@ -463,6 +470,7 @@ def review(c, script_id, user, verdict, reason="", edited_text=None):
                   (script_id, ver, json.dumps(turns, ensure_ascii=False), V.count_words(turns), s["prompt_version"], "reviewer fix", now))
         c.execute("UPDATE scripts SET status='APPROVED', version=?, words=?, shingles=?, opening=?, updated_at=? WHERE id=?",
                   (ver, V.count_words(turns), V.pack(V.shingle_set(turns)), V.opening_key(turns), now, script_id))
+        _shingles_changed()
         backup_script(c, script_id)
     elif verdict == "reject":
         c.execute("UPDATE scripts SET reject_reason=? WHERE id=?", (reason, script_id))
@@ -471,6 +479,7 @@ def review(c, script_id, user, verdict, reason="", edited_text=None):
             c.execute("UPDATE scripts SET reject_reason=? WHERE id=?", (reason, script_id))
         else:
             c.execute("UPDATE scripts SET status='PLANNED', shingles=NULL, opening=NULL WHERE id=?", (script_id,))
+            _shingles_changed()
     else:
         raise ValueError("bad verdict")
     c.execute("INSERT INTO reviews(script_id,version,reviewer,verdict,reason,ts) VALUES(?,?,?,?,?,?)",
@@ -498,6 +507,7 @@ def manual_script(c, script_id, user, text):
     c.execute("UPDATE scripts SET status='IN_REVIEW', version=?, words=?, shingles=?, opening=?, source='manual', needs_review=1,"
               " is_test=0, updated_at=? WHERE id=?",
               (ver, V.count_words(turns), V.pack(V.shingle_set(turns)), V.opening_key(turns), now, script_id))
+    _shingles_changed()
     c.execute("UPDATE jobs SET status='DONE' WHERE script_id=?", (script_id,))
     db.audit(c, user, "manual_script", s["code"])
 
@@ -520,4 +530,5 @@ def requeue_quarantined(c, lang_id, actor):
     for i in ids:
         retry_job(c, i, actor)
         c.execute("UPDATE scripts SET shingles=NULL, opening=NULL WHERE id=?", (i,))
+    _shingles_changed()
     return len(ids)

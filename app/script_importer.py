@@ -27,6 +27,7 @@ import os
 import re
 import string
 import sys
+import threading
 import time
 import zlib
 from pathlib import Path
@@ -371,6 +372,53 @@ def unpack_shingles(b):
         return set()
 
 
+# ---- Fingerprint cache for the near-duplicate check (Check 5) ----------------------------------------------
+# The check compares a new file with every fingerprint in its language. Reading them all from the database for
+# every uploaded file downloaded ~6 KB x (scripts in language) per file: a 1,500-file upload pulled several GB
+# from Supabase. Now the packed fingerprints are kept in memory per language. Before each check one tiny query
+# reads a signature (count, newest id, total bytes); if it matches, the cached copy is used; if only new scripts
+# were added, only those are fetched; anything else re-reads the language. Code that rewrites fingerprints calls
+# shingles_changed(), which forces a full re-read. Results are the same as reading everything each time.
+_SHINGLE_LOCK = threading.Lock()
+_SHINGLE_CACHE = {}      # language_id -> {"sig": (n, max_id, total_len, epoch), "rows": [(id, code, packed_bytes)]}
+_SHINGLE_EPOCH = [0]
+
+
+def shingles_changed():
+    """Call after UPDATE-ing scripts.shingles anywhere, so the next duplicate check re-reads fingerprints."""
+    with _SHINGLE_LOCK:
+        _SHINGLE_EPOCH[0] += 1
+        _SHINGLE_CACHE.clear()
+
+
+def _language_shingles(c, language_id):
+    """[(id, code, packed_shingles)] for the language, ordered by id, as the database has them right now."""
+    sig_row = c.execute(
+        "SELECT COUNT(*) n, COALESCE(MAX(id), 0) m, COALESCE(SUM(LENGTH(shingles)), 0) t "
+        "FROM scripts WHERE language_id = ? AND shingles IS NOT NULL", (language_id,)).fetchone()
+    with _SHINGLE_LOCK:
+        epoch = _SHINGLE_EPOCH[0]
+        ent = _SHINGLE_CACHE.get(language_id)
+    sig = (int(sig_row["n"]), int(sig_row["m"]), int(sig_row["t"]), epoch)
+    if ent and ent["sig"] == sig:
+        return ent["rows"]
+    rows = None
+    if ent and ent["sig"][3] == epoch and sig[1] > ent["sig"][1]:
+        new = [(r["id"], r["code"], bytes(r["shingles"])) for r in c.execute(
+            "SELECT id, code, shingles FROM scripts WHERE language_id = ? AND shingles IS NOT NULL AND id > ? ORDER BY id",
+            (language_id, ent["sig"][1])).fetchall()]
+        if ent["sig"][0] + len(new) == sig[0] and ent["sig"][2] + sum(len(b) for _, _, b in new) == sig[2]:
+            rows = ent["rows"] + new
+    if rows is None:
+        rows = [(r["id"], r["code"], bytes(r["shingles"])) for r in c.execute(
+            "SELECT id, code, shingles FROM scripts WHERE language_id = ? AND shingles IS NOT NULL ORDER BY id",
+            (language_id,)).fetchall()]
+    with _SHINGLE_LOCK:
+        if _SHINGLE_EPOCH[0] == epoch:
+            _SHINGLE_CACHE[language_id] = {"sig": sig, "rows": rows}
+    return rows
+
+
 def compute_content_fingerprint(content: str) -> dict:
     """Computes robust dialogue content fingerprints for deduplication.
     Extracts spoken dialogue, normalized text, opening string, scenario header, 5-gram shingles, and SHA-256 hash.
@@ -482,17 +530,13 @@ def find_duplicate_script(c, language_id: int, filename: str, content: str, meta
     # Check 5: Shingle similarity overlap (near-copy match >= 70%)
     if fp["shingles"]:
         mine = fp["shingles"]
-        rows = c.execute(
-            "SELECT id, code, shingles FROM scripts WHERE language_id = ? AND shingles IS NOT NULL",
-            (language_id,)
-        ).fetchall()
-        for r in rows:
-            if r["shingles"]:
-                other = unpack_shingles(r["shingles"])
+        for sid, scode, packed in _language_shingles(c, language_id):
+            if packed:
+                other = unpack_shingles(packed)
                 if other and min(len(mine), len(other)) > 0:
                     overlap = len(mine & other) / min(len(mine), len(other))
                     if overlap >= 0.70:
-                        return {"id": r["id"], "code": r["code"], "reason": f"Near-duplicate ({int(overlap*100)}% text overlap with {r['code']})"}
+                        return {"id": sid, "code": scode, "reason": f"Near-duplicate ({int(overlap*100)}% text overlap with {scode})"}
 
     return None
 
