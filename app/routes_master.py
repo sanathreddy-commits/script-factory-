@@ -3018,6 +3018,18 @@ async def admin_reports_export_csv(request: Request):
                     headers={"Content-Disposition": "attachment; filename=sessions_report.csv"})
 
 
+@router.get("/admin/backup/full.zip")
+async def admin_full_backup(request: Request):
+    """Everything done so far as one ZIP: readable Excel report + raw CSV per table (no secrets, no photos)."""
+    u = gate(request, "admin", "developer")
+    from . import backup_export
+    with db.ro() as c:
+        data, fname = backup_export.build_backup_zip(c)
+    with db.tx() as c:
+        db.audit(c, u, "full_backup_download", f"{fname} {len(data)} bytes")
+    return Response(data, media_type="application/zip", headers={"Content-Disposition": f'attachment; filename="{fname}"'})
+
+
 @router.get("/admin/export/excel")
 @router.get("/admin/reports/export_excel")
 async def admin_export_excel(request: Request):

@@ -24,17 +24,6 @@
       <button class="btn pri" style="margin-top:.8rem">Upload Template</button>
     </form>
     
-    <div style="margin-top:2rem;">
-      <p class="small mute">OR Paste Template Text</p>
-      <form method="post" action="/admin/language/{{ L.id }}/generate_chat">
-        <input type="hidden" name="csrf" value="{{ csrf }}">
-        <label>Master Script Text</label>
-        <textarea name="prompt" placeholder="Paste your master script here..."></textarea>
-        <label>Number of variations to generate</label>
-        <input type="number" name="count" value="5" min="1" max="50">
-        <button class="btn pri" style="margin-top:.8rem">Generate Now</button>
-      </form>
-    </div>
   </div>
 
   <div class="card">

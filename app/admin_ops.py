@@ -97,36 +97,6 @@ def update_quotas(c, actor, lang_id, quotas):
     return total
 
 
-def plan(c, actor, lang_id):
-    if actor["role"] not in ("admin", "developer"):
-        raise PermissionError("admin only")
-    S = db.S(c)
-    n = T.plan_language(c, lang_id, int(S["wave1_size"]), int(S["wave_size"]))
-    db.audit(c, actor, "plan_language", f"lang={lang_id} slots={n}")
-    return n
-
-
-def add_key(c, actor, label, provider, model, role, api_key="", base_url="", languages="*", rpm=30, daily_cap=500.0,
-            monthly_cap=5000.0, price_in=0.0, price_out=0.0):
-    if actor["role"] not in ("admin", "developer"):
-        raise PermissionError("admin only")
-    if provider not in ("stub", "anthropic", "openai"):
-        raise ValueError("provider must be stub, anthropic or openai")
-    if provider != "stub" and not api_key:
-        raise ValueError("API key required")
-    kid = c.execute(
-        "INSERT INTO api_keys(label,provider,model,role,languages,api_key,base_url,rpm,daily_cap,monthly_cap,price_in,price_out)"
-        " VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
-        (label, provider, model, role, languages or "*", api_key, base_url, rpm, daily_cap, monthly_cap, price_in, price_out)).lastrowid
-    db.audit(c, actor, "add_key", f"{label} {provider}/{model} {role}")
-    return kid
-
-
-def mask_key(k):
-    s = k or ""
-    return "(none)" if not s else (s[:4] + "…" + s[-4:] if len(s) > 10 else "••••")
-
-
 def test_supabase(c=None):
     from . import sync
     return sync.test_connection(c=c)

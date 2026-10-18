@@ -22,6 +22,24 @@ from app import db, ops, pipeline as P  # noqa: E402
 from app.main import app  # noqa: E402
 
 
+def _add_scripts(lid, n, status):
+    """Scripts as uploads add them, with the attrs the review screen needs."""
+    import json
+    now = time.time()
+    with db.tx() as c:
+        base = c.execute("SELECT COALESCE(MAX(seq), 0) m FROM scripts WHERE language_id=?", (lid,)).fetchone()["m"]
+        for k in range(1, n + 1):
+            g = [("M", "F"), ("F", "M"), ("M", "M"), ("F", "F")][k % 4]
+            attrs = {"roles": ["Doctor", "Patient"], "code_switch": "low", "entities": {}, "names": {"A": "Speaker A", "B": "Speaker B"},
+                     "genders": {"A": g[0], "B": g[1]}}
+            sid = c.execute("INSERT INTO scripts(language_id,seq,code,domain,subdomain,specialisation,wave,attrs,status,version,words,"
+                            "source,created_at,updated_at) VALUES(?,?,?,?,?,?,1,?,?,1,1300,'local_import',?,?)",
+                            (lid, base + k, codes.script_code("KN", base + k), "Healthcare", "Doctor-Patient Consultation",
+                             "General Physician", json.dumps(attrs), status, now, now)).lastrowid
+            c.execute("INSERT INTO script_versions(script_id,version,turns,words,created_at) VALUES(?,1,?,1300,?)",
+                      (sid, json.dumps([{"s": "A", "t": "ನಮಸ್ಕಾರ"}, {"s": "B", "t": "ನಮಸ್ಕಾರ"}], ensure_ascii=False), now))
+
+
 def csrf(html):
     m = re.search(r'name="csrf" value="([^"]+)"', html)
     return m.group(1) if m else ""
@@ -41,22 +59,16 @@ def test_everything():
         login(adm, ADMIN_CODE)
         assert "Dashboard" in adm.get("/admin").text
 
-        # --- language, plan, key, wave
+        # --- language (scripts now come from uploads; generation was removed)
         t = csrf(adm.get("/admin/language/new").text)
         r = adm.post("/admin/language/new", data={"csrf": t, "preset": "kannada", "target": "1500", **{f"q_{i}": "167" for i in range(9)}})
         assert "does not match" in r.text  # 1500 vs 1503 is rejected
         r = adm.post("/admin/language/new", data={"csrf": t, "preset": "kannada", "target": "1503", "mode": "read_aloud", **{f"q_{i}": "167" for i in range(9)}})
         assert "Language created" in r.text
         lang = adm.get("/admin/language/1")
-        r = adm.post("/admin/language/1/plan", data={"csrf": t})
-        g = adm.get("/admin/generation")
-        r = adm.post("/admin/keys/add", data={"csrf": t, "label": "w", "provider": "stub", "model": "stub-w", "role": "writer", "rpm": "60000"})
-        r = adm.post("/admin/keys/add", data={"csrf": t, "label": "j", "provider": "stub", "model": "stub-j", "role": "judge", "rpm": "60000"})
-        r = adm.post("/admin/language/1/wave", data={"csrf": t, "wave": "1", "what": "release"})
-        assert "Wave 1 released" in r.text
-        r = adm.post("/admin/language/1/wave", data={"csrf": t, "wave": "2", "what": "release"})
-        assert "not finished" in r.text  # wave gate
-        P.run_pending(14)
+        assert lang.status_code == 200
+        assert adm.get("/admin/generation").status_code == 404  # generation pages are gone
+        _add_scripts(1, 14, "IN_REVIEW")
 
         # --- review screens
         assert "Review queue" in adm.get("/review").text
@@ -78,7 +90,7 @@ def test_everything():
         login(lead, lead_code)
         assert "exceptions" in lead.get("/team").text
         assert lead.get("/admin").status_code == 200  # supervisors now get the (language-scoped) dashboard
-        assert lead.get("/admin/generation").status_code == 403  # role wall still holds for admin-only pages
+        assert lead.get("/admin/settings").status_code == 403  # role wall still holds for admin-only pages
         assert lead.get("/review").status_code == 403
         lt = csrf(lead.get("/team/people").text)
         r = lead.post("/team/people/preview", data={"csrf": lt, "lang": "1"},
@@ -149,11 +161,11 @@ def test_everything():
         assert pa.post(f"/a/{aid}/done", data={"csrf": "bad"}).status_code == 400
 
         # --- admin pages and downloads
-        for path in ["/admin", "/admin?lang_id=1", f"/admin?lang_id=1&agent_id={a_id}", "/admin/language/1", "/admin/generation", "/admin/data", "/admin/settings", "/admin/audit", "/review",
+        for path in ["/admin", "/admin?lang_id=1", f"/admin?lang_id=1&agent_id={a_id}", "/admin/language/1", "/admin/data", "/admin/settings", "/admin/audit", "/review",
                      "/team", "/team/people", "/team/pairs", "/team/work", "/search?q=KN-0000", "/admin/script/1"]:
             r = adm.get(path)
             assert r.status_code == 200, (path, r.status_code, r.text[:200])
-        for rep in ["scripts", "people", "pairs", "assignments", "ledger", "generation_cost", "audit", "client_manifest", "payout"]:
+        for rep in ["scripts", "people", "pairs", "assignments", "ledger", "audit", "client_manifest", "payout"]:
             r = adm.get(f"/report/{rep}")
             assert r.status_code == 200 and r.headers["content-type"].startswith("text/csv"), rep
         r = lead.get("/report/people")

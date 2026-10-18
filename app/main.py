@@ -105,7 +105,8 @@ async def lifespan(app):
                     print(f"[Auto-Sync] Automatically imported {synced} scripts from library into database.")
         except Exception as ex:
             print("[Auto-Sync] Startup script sync notice:", ex)
-        P.Orchestrator().start()
+        # No background script-generation workers: scripts come from library uploads. The old workers polled the
+        # database every 1.5 s per writer key, day and night (~1-2 GB of Supabase egress per key per day).
         threading.Thread(target=sweeper, daemon=True).start()
         if not pg:
             # Whole-file SQLite->Supabase Storage blob sync is only needed when SQLite is primary.
@@ -146,7 +147,6 @@ def _hm(h):
 
 templates.env.filters["hm"] = _hm
 templates.env.filters["inr"] = lambda v: "Rs " + f"{float(v or 0):,.2f}"
-templates.env.globals["mask_key"] = admin_ops.mask_key
 
 
 def _asset_version():
@@ -1630,7 +1630,7 @@ async def review_list(request: Request):
                          (L["id"],)).fetchall() if L else []
         stats = c.execute("SELECT verdict, COUNT(*) n FROM reviews GROUP BY verdict").fetchall()
         return render(request, "review_list.html", u, L=L, langs=langs(c), rows=rows, stats={r["verdict"]: r["n"] for r in stats},
-                      paused=db.setting(c, "pause_generation") == "1")
+                      paused=False)
 
 
 @app.get("/review/{sid}")
@@ -1644,7 +1644,7 @@ async def review_one(request: Request, sid: int):
         attrs = json.loads(s["attrs"])
         v = c.execute("SELECT turns FROM script_versions WHERE script_id=? AND version=?", (sid, s["version"])).fetchone()
         turns = json.loads(v["turns"]) if v else []
-        job = c.execute("SELECT * FROM jobs WHERE script_id=?", (sid,)).fetchone()
+        job = None
         errs = V.validate(turns, attrs, L, db.S(c)) if turns else []
         return render(request, "review_one.html", u, s=s, L=L, attrs=attrs, turns=turns, text=P.render_text(turns, attrs["roles"]),
                       judge=json.loads(s["judge"]) if s["judge"] else None, job=job, errs=errs,
@@ -1668,31 +1668,7 @@ async def review_do(request: Request, sid: int):
     return back(f"/review/{nxt['id']}" if nxt else "/review", m="Saved.")
 
 
-# ---------------------------------------------------------------- admin: dashboard & languages
-@app.get("/admin")
-async def admin_home(request: Request):
-    u = gate(request, "admin")
-    with db.ro() as c:
-        tiles = []
-        for L in langs(c):
-            d, a = ops.funnel(c, L["id"])
-            hum, iss = d.get("NEEDS_HUMAN", 0), c.execute("SELECT COUNT(*) n FROM issues WHERE status='OPEN' AND language_id=?", (L["id"],)).fetchone()["n"]
-            score = max(0, 100 - 2 * hum - 3 * iss - (10 if db.setting(c, "pause_generation") == "1" else 0))
-            conf = a.get("CONFIRMED", 0)
-            tiles.append(dict(L=L, d=d, a=a, score=score, planned=L["target"] if L["planned"] else 0, conf=conf,
-                              approved=d.get("APPROVED", 0), review=d.get("IN_REVIEW", 0)))
-        spent = c.execute("SELECT COALESCE(SUM(cost),0) x FROM jobs").fetchone()["x"]
-        
-        current_L = pick_lang(c, u, request)
-        from . import taxonomy
-        taxonomy_rows, taxonomy_summary = taxonomy.get_taxonomy_stats(c, current_L["id"] if current_L else None)
-        
-        return render(request, "admin_home.html", u, tiles=tiles, alerts=ops.alerts(c), spent=spent,
-                      current_L=current_L, taxonomy_rows=taxonomy_rows, taxonomy_summary=taxonomy_summary,
-                      cap=float(db.setting(c, "global_cap_inr")), orphans=c.execute("SELECT COUNT(*) n FROM orphans WHERE status='OPEN'").fetchone()["n"])
-
-
-
+# ---------------------------------------------------------------- admin: languages
 import io
 import csv
 
@@ -1721,32 +1697,6 @@ async def generate_upload(request: Request, lid: int):
         
     return back(f"/admin/language/{lid}", m="Master script uploaded and marked READY.")
 
-@app.post("/admin/language/{lid}/generate_chat")
-async def generate_chat(request: Request, lid: int):
-    u, f = await post(request, "admin")
-    prompt = f.get("prompt", "")
-    count = int(f.get("count", 5))
-    if not prompt:
-        return back(f"/admin/language/{lid}", e="Empty prompt.")
-    
-    with db.tx() as c:
-        for _ in range(count):
-            code = codes.new_code()
-            seq = c.execute("SELECT IFNULL(MAX(seq), 0) + 1 FROM scripts WHERE language_id=?", (lid,)).fetchone()[0]
-            c.execute("""
-                INSERT INTO scripts(language_id, seq, code, domain, subdomain, status, source, wave) 
-                VALUES(?, ?, ?, ?, ?, 'READY', 'chat_generated', 1)
-            """, (lid, seq, code, "Generated", "Chat"))
-            script_id = c.execute("SELECT last_insert_rowid()").fetchone()[0]
-            
-            # Simple mock generation for now - would integrate with LLM
-            gen_text = f"Generated variation of: {prompt[:50]}..."
-            turn_json = json.dumps([{"role": "Speaker A", "text": gen_text}, {"role": "Speaker B", "text": "Ok."}])
-            c.execute("INSERT INTO script_versions(script_id, version, turns, words, created_at) VALUES(?, 1, ?, ?, ?)",
-                      (script_id, turn_json, len(gen_text.split()), time.time()))
-            
-    return back(f"/admin/language/{lid}", m=f"{count} scripts generated and marked READY.")
-
 @app.get("/admin/language/new")
 async def lang_new(request: Request):
     u = gate(request, "admin")
@@ -1764,7 +1714,7 @@ async def lang_create(request: Request):
                                             f.get("deadline", ""))
     except (ValueError, KeyError) as e:
         return back("/admin/language/new", e=str(e))
-    return back(f"/admin/language/{lid}", m="Language created. Review quotas, then plan the slots.")
+    return back(f"/admin/language/{lid}", m="Language created.")
 
 
 @app.get("/admin/language/{lid}")
@@ -1776,29 +1726,20 @@ async def lang_page(request: Request, lid: int):
             raise HTTPException(404, "no such language")
         quotas = c.execute("SELECT * FROM quotas WHERE language_id=?", (lid,)).fetchall()
         d, a = ops.funnel(c, lid)
-        waves = c.execute("SELECT wave, COUNT(*) n, SUM(CASE WHEN status='PLANNED' THEN 1 ELSE 0 END) planned,"
-                          " SUM(CASE WHEN status IN ('QUEUED','GENERATING') THEN 1 ELSE 0 END) running,"
-                          " SUM(CASE WHEN status='IN_REVIEW' THEN 1 ELSE 0 END) review, SUM(CASE WHEN status='APPROVED' THEN 1 ELSE 0 END) approved,"
-                          " SUM(CASE WHEN status='NEEDS_HUMAN' THEN 1 ELSE 0 END) human"
-                          " FROM scripts WHERE language_id=? GROUP BY wave ORDER BY wave", (lid,)).fetchall()
-        est = {w["wave"]: P.estimate(c, lid, w["wave"]) for w in waves if w["planned"]}
         days = c.execute("SELECT date(a.updated_at,'unixepoch','+5 hours','+30 minutes') d, COUNT(*) n FROM assignments a JOIN scripts s ON s.id=a.script_id"
                          " WHERE s.language_id=? AND a.status='CONFIRMED' GROUP BY 1 ORDER BY 1", (lid,)).fetchall()
         cum, run = [], 0
         for r in days:
             run += r["n"]
             cum.append((r["d"], run))
-        pv = c.execute("SELECT prompt_version pv, COUNT(*) n FROM scripts WHERE language_id=? AND prompt_version IS NOT NULL GROUP BY 1", (lid,)).fetchall()
         capacity = None
         if L["cap_pair_min"]:
             avg = float(db.setting(c, "avg_minutes"))
             capacity = int(-(-(L["target"] * avg) // L["cap_pair_min"]))
         recent_scripts = c.execute("SELECT * FROM scripts WHERE language_id=? ORDER BY id DESC LIMIT 10", (lid,)).fetchall()
-        return render(request, "admin_lang.html", u, L=L, quotas=quotas, d=d, a=a, cov=ops.coverage(c, lid), waves=waves, est=est, cum=cum, recent_scripts=recent_scripts,
-                      prompts=pv, capacity=capacity, subs=T.SUBS, split=T.spec_split(T.PER_SUB),
-                      paused_assign=db.setting(c, f"pause_assign_{lid}") == "1", gen_paused=db.setting(c, "pause_generation") == "1",
-                      jobs_started=c.execute("SELECT COUNT(*) n FROM jobs").fetchone()["n"] > 0,
-                      keys_ok=bool(c.execute("SELECT 1 FROM api_keys WHERE status='active' AND role IN ('writer','spare')").fetchone()))
+        return render(request, "admin_lang.html", u, L=L, quotas=quotas, d=d, a=a, cov=ops.coverage(c, lid), cum=cum, recent_scripts=recent_scripts,
+                      capacity=capacity, subs=T.SUBS, split=T.spec_split(T.PER_SUB),
+                      paused_assign=db.setting(c, f"pause_assign_{lid}") == "1")
 
 
 @app.post("/admin/language/{lid}/{act}")
@@ -1811,21 +1752,6 @@ async def lang_act(request: Request, lid: int, act: str):
                 q = {s[1]: int(f.get(f"q_{i}") or 0) for i, s in enumerate(T.SUBS)}
                 tot = admin_ops.update_quotas(c, u, lid, q)
                 return back(url, m=f"Quotas saved. Target is now {tot}.")
-            if act == "plan":
-                n = admin_ops.plan(c, u, lid)
-                return back(url, m=f"{n} slots planned (code decided every attribute). Wave 1 is ready to release.")
-            if act == "wave":
-                w, what = int(f.get("wave")), f.get("what")
-                if what == "release":
-                    n = P.release_wave(c, lid, w, u)
-                    return back(url, m=f"Wave {w} released: {n} jobs queued.")
-                n = P.cancel_wave(c, lid, w, u)
-                return back(url, m=f"Wave {w}: {n} queued jobs cancelled.")
-            if act == "quarantine":
-                hit = P.quarantine_prompt(c, lid, f.get("pv"), u)
-                return back(url, m="Quarantined." + (f" ALREADY ASSIGNED (tell the client if recorded): {', '.join(hit)}" if hit else ""))
-            if act == "requeue":
-                return back(url, m=f"{P.requeue_quarantined(c, lid, u)} quarantined scripts re-queued.")
             if act == "revokeall":
                 ops.revoke_all(c, u, lid)
                 return back(url, m="All participant codes revoked.")
@@ -1845,69 +1771,6 @@ async def lang_act(request: Request, lid: int, act: str):
     except (ValueError, PermissionError) as e:
         return back(url, e=str(e))
     raise HTTPException(404, "unknown action")
-
-
-# ---------------------------------------------------------------- admin: generation
-@app.get("/admin/generation")
-async def generation(request: Request):
-    u = gate(request, "admin")
-    with db.ro() as c:
-        keys = c.execute("SELECT * FROM api_keys ORDER BY id").fetchall()
-        q = {r["status"]: r["n"] for r in c.execute("SELECT status, COUNT(*) n FROM jobs GROUP BY status")}
-        human = c.execute("SELECT s.id, s.code, j.error, j.attempts FROM jobs j JOIN scripts s ON s.id=j.script_id WHERE j.status='NEEDS_HUMAN' LIMIT 100").fetchall()
-        spent = c.execute("SELECT COALESCE(SUM(cost),0) x FROM jobs").fetchone()["x"]
-        remaining = q.get("QUEUED", 0) + q.get("RUNNING", 0)
-        done = q.get("DONE", 0)
-        return render(request, "admin_gen.html", u, keys=keys, q=q, human=human, spent=spent, cap=float(db.setting(c, "global_cap_inr")),
-                      paused=db.setting(c, "pause_generation") == "1", remaining=remaining, done=done,
-                      threads=not os.environ.get("SF_NO_THREADS"), langs=langs(c))
-
-
-@app.post("/admin/keys/add")
-async def key_add(request: Request):
-    u, f = await post(request, "admin")
-    try:
-        with db.tx() as c:
-            admin_ops.add_key(c, u, f.get("label") or "key", f.get("provider"), f.get("model") or "model", f.get("role"), f.get("api_key", ""),
-                              f.get("base_url", ""), f.get("languages") or "*", int(f.get("rpm") or 30), float(f.get("daily_cap") or 500),
-                              float(f.get("monthly_cap") or 5000), float(f.get("price_in") or 0), float(f.get("price_out") or 0))
-    except ValueError as e:
-        return back("/admin/generation", e=str(e))
-    return back("/admin/generation", m="Key added. A worker starts automatically.")
-
-
-@app.post("/admin/keys/{kid}/{act}")
-async def key_act(request: Request, kid: int, act: str):
-    u, f = await post(request, "admin")
-    with db.tx() as c:
-        if act in ("pause", "resume", "disable"):
-            c.execute("UPDATE api_keys SET status=?, cool_until=0 WHERE id=?", ({"pause": "paused", "resume": "active", "disable": "disabled"}[act], kid))
-        elif act == "delete":
-            c.execute("DELETE FROM api_keys WHERE id=?", (kid,))
-        elif act == "rotate":
-            c.execute("UPDATE api_keys SET api_key=? WHERE id=?", (f.get("api_key", ""), kid))
-        db.audit(c, u, "key_" + act, str(kid))
-    return back("/admin/generation", m="Done.")
-
-
-@app.post("/admin/gen/{act}")
-async def gen_toggle(request: Request, act: str):
-    u, f = await post(request, "admin")
-    with db.tx() as c:
-        db.set_setting(c, "pause_generation", 1 if act == "pause" else 0)
-        if act == "resume":
-            r = c.execute("SELECT COALESCE(MAX(id),0) m FROM reviews").fetchone()["m"]
-            db.set_setting(c, "stop_after_review", r)
-        db.audit(c, u, "generation_" + act)
-    return back("/admin/generation", m="Generation " + ("paused." if act == "pause" else "resumed (stop-the-line window reset)."))
-
-
-@app.post("/admin/script/{sid}/retry")
-async def script_retry(request: Request, sid: int):
-    u, f = await post(request, "admin")
-    with db.tx() as c:
-        P.retry_job(c, sid, u)
-    return back("/admin/generation", m="Re-queued with a new seed.")
 
 
 @app.get("/admin/script/{sid}")
@@ -2040,11 +1903,6 @@ SETTING_HELP = [
         ("verification_mode", "self_report (UNVERIFIED) or client_log"), ("dur_min_sec", "Allowed recording duration, min seconds"),
         ("dur_max_sec", "Allowed recording duration, max seconds"), ("client_url", "Client recorder link, use {script_id}"),
         ("rate_per_hour_inr", "Payout rate, Rs per hour")]),
-    ("Review & cost", [
-        ("review_pct", "Random review % after Wave 1"), ("reject_stop_pct", "Stop-the-line reject % (last 30 reviews)"), ("reject_stop_min", "Min reviews before the rule applies"),
-        ("global_cap_inr", "Global generation spend cap, Rs"), ("tokens_per_word", "Tokens per word (for estimates; measure in the pilot)"),
-        ("wave1_size", "Wave 1 size (applies when planning)"), ("wave_size", "Later wave size (applies when planning)"),
-        ("stub_chaos", "Stub test provider: chance of a bad draft (0-1)")]),
     ("Messages", [("lead_whatsapp_nudge", "WhatsApp nudge text. {name} is replaced")]),
 ]
 SPEC_KEYS = {"words_min", "words_max", "max_turn_words", "sim_threshold", "banned_topics"}
@@ -2055,7 +1913,7 @@ async def settings_page(request: Request):
     u = gate(request, "admin")
     with db.ro() as c:
         S = db.S(c)
-        return render(request, "admin_settings.html", u, S=S, groups=SETTING_HELP, prompt=P.master_prompt(c))
+        return render(request, "admin_settings.html", u, S=S, groups=SETTING_HELP)
 
 
 @app.post("/admin/settings")
@@ -2070,11 +1928,6 @@ async def settings_save(request: Request):
                     db.set_setting(c, k, f[k])
                     db.audit(c, u, "setting", f"{k}: {S.get(k)} -> {f[k]}")
                     spec_changed = spec_changed or k in SPEC_KEYS
-        if f.get("master_prompt") is not None and f["master_prompt"].strip() != P.master_prompt(c).strip():
-            db.set_setting(c, "master_prompt", f["master_prompt"].strip())
-            n = int(S["prompt_version"].lstrip("p") or 1) + 1
-            db.set_setting(c, "prompt_version", f"p{n}")
-            db.audit(c, u, "master_prompt", f"new version p{n}")
         if spec_changed:
             db.set_setting(c, "spec_version", int(S["spec_version"]) + 1)
             db.audit(c, u, "spec_version", "bumped; run Re-validate to see impact")

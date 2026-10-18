@@ -15,6 +15,9 @@ os.environ["SF_BACKUP"] = os.path.join(_d, "bk")
 
 from app import admin_ops, codes, db, ops, pipeline as P, taxonomy as T, validators as V  # noqa: E402
 
+_GENDERS = [("M", "F"), ("F", "M"), ("M", "M"), ("F", "F")]
+_seq = [0]
+
 ADMIN = {"role": "admin", "id": 1, "name": "Admin", "language_id": None, "perm": "manage"}
 
 
@@ -24,18 +27,30 @@ def world():
     with db.tx() as c:
         c.execute("INSERT INTO users(name,role,code,created_at) VALUES('Admin','admin','ADMINCODE',?)", (time.time(),))
         lid = admin_ops.create_language(c, ADMIN, "kannada")
-        admin_ops.plan(c, ADMIN, lid)
         admin_ops.create_language(c, ADMIN, "hindi", quotas={s[1]: 2 for s in T.SUBS})
-        admin_ops.add_key(c, ADMIN, "w", "stub", "stub-w", "writer", rpm=60000)
-        admin_ops.add_key(c, ADMIN, "j", "stub", "stub-j", "judge", rpm=60000)
-        db.set_setting(c, "allow_test_scripts", 1)
-        P.release_wave(c, lid, 1, ADMIN)
-    P.run_pending(30)
-    with db.tx() as c:  # approve 30 scripts as a reviewer would
-        ids = [r["id"] for r in c.execute("SELECT id FROM scripts WHERE status='IN_REVIEW' LIMIT 30")]
-        for i in ids:
-            P.review(c, i, ADMIN, "accept")
+    add_scripts(lid, 30)
     return lid
+
+
+def add_scripts(lid, n, status="APPROVED"):
+    """Ready-to-record scripts, as uploads add them (script generation was removed). Every gender combination
+    appears, so gender matching is exercised."""
+    now = time.time()
+    with db.tx() as c:
+        L = c.execute("SELECT code FROM languages WHERE id=?", (lid,)).fetchone()
+        for _ in range(n):
+            _seq[0] += 1
+            k = _seq[0]
+            g = _GENDERS[k % len(_GENDERS)]
+            attrs = {"roles": ["Doctor", "Patient"], "code_switch": "low", "opening": "greeting", "outcome": "resolved",
+                     "names": {"A": "Speaker A", "B": "Speaker B"}, "entities": {}, "genders": {"A": g[0], "B": g[1]}}
+            sid = c.execute(
+                "INSERT INTO scripts(language_id,seq,code,domain,subdomain,specialisation,wave,attrs,status,version,words,source,"
+                "created_at,updated_at) VALUES(?,?,?,?,?,?,1,?,?,1,1300,'local_import',?,?)",
+                (lid, 10000 + k, codes.script_code(L["code"], 10000 + k), "Healthcare", "Doctor-Patient Consultation",
+                 "General Physician", json.dumps(attrs), status, now, now)).lastrowid
+            c.execute("INSERT INTO script_versions(script_id,version,turns,words,created_at) VALUES(?,1,?,1300,?)",
+                      (sid, json.dumps([{"s": "A", "t": "ನಮಸ್ಕಾರ"}, {"s": "B", "t": "ನಮಸ್ಕಾರ"}], ensure_ascii=False), now))
 
 
 def mkpair(lid, n, genders=("", "")):
@@ -47,25 +62,11 @@ def mkpair(lid, n, genders=("", "")):
         return ops.create_pair(c, ADMIN, a, b), a, b
 
 
-def topup(n=12, accept=True):
-    """Generate n more scripts with the stub and (optionally) approve them as a reviewer would."""
-    P.run_pending(n)
-    if accept:
-        with db.tx() as c:
-            for r in c.execute("SELECT id FROM scripts WHERE status='IN_REVIEW'").fetchall():
-                P.review(c, r["id"], ADMIN, "accept")
-
-
-def test_quota_math(world):
+def topup(n=12):
+    """n more ready scripts in the main test language."""
     with db.ro() as c:
-        assert c.execute("SELECT COUNT(*) n FROM scripts WHERE language_id=?", (world,)).fetchone()["n"] == 1503
-        for r in c.execute("SELECT subdomain, COUNT(*) n FROM scripts WHERE language_id=? GROUP BY 1", (world,)):
-            assert r["n"] == 167
-        spec = {r["specialisation"]: r["n"] for r in c.execute(
-            "SELECT specialisation, COUNT(*) n FROM scripts WHERE subdomain='Doctor-Patient Consultation' GROUP BY 1")}
-        assert spec == {"General Physician": 84, "Pediatrician": 17, "Dermatology": 25, "Dentist": 25, "Gynecologist": 8, "Orthopedist": 8}
-        w1 = {r["subdomain"] for r in c.execute("SELECT subdomain FROM scripts WHERE wave=1")}
-        assert len(w1) == 9  # wave 1 is stratified
+        lid = c.execute("SELECT id FROM languages WHERE code='KN'").fetchone()["id"]
+    add_scripts(lid, n)
 
 
 def test_target_must_match_quotas():
@@ -85,34 +86,6 @@ def test_codes_catch_every_single_character_typo():
     assert codes.script_code_valid(sc) and not codes.script_code_valid(sc[:-1] + str((int(sc[-1]) + 1) % 10))
 
 
-def test_llm_output_stored_only_if_valid(world):
-    with db.ro() as c:
-        for s in c.execute("SELECT id, version, status FROM scripts WHERE language_id=? AND version>0", (world,)):
-            L = c.execute("SELECT * FROM languages WHERE id=?", (world,)).fetchone()
-            v = c.execute("SELECT turns FROM script_versions WHERE script_id=? AND version=?", (s["id"], s["version"])).fetchone()
-            sc = c.execute("SELECT attrs FROM scripts WHERE id=?", (s["id"],)).fetchone()
-            assert V.validate(json.loads(v["turns"]), json.loads(sc["attrs"]), L, db.S(c)) == []
-
-
-def test_bad_output_rejected_and_flagged(world):
-    with db.tx() as c:
-        P.cancel_wave(c, world, 1, ADMIN)  # leave only my job in the queue
-        db.set_setting(c, "stub_chaos", 1.0)  # every draft is 55% short; targeted repair then succeeds or flags
-        s = c.execute("SELECT id FROM scripts WHERE language_id=? AND status='PLANNED' AND wave=2 LIMIT 1", (world,)).fetchone()
-        c.execute("UPDATE scripts SET status='QUEUED' WHERE id=?", (s["id"],))
-        c.execute("INSERT INTO jobs(script_id,status,seed) VALUES(?, 'QUEUED', 5)", (s["id"],))
-    P.run_pending(1)
-    with db.tx() as c:
-        db.set_setting(c, "stub_chaos", 0.0)
-        sc = c.execute("SELECT * FROM scripts WHERE id=?", (s["id"],)).fetchone()
-        # either repaired into a valid script, or flagged without storing any version
-        if sc["status"] == "NEEDS_HUMAN":
-            assert sc["version"] == 0
-            assert c.execute("SELECT COUNT(*) n FROM script_versions WHERE script_id=?", (s["id"],)).fetchone()["n"] == 0
-        else:
-            assert sc["version"] == 1 and 1200 <= sc["words"] <= 1500
-
-
 def test_validators_catch_problems(world):
     with db.ro() as c:
         L = c.execute("SELECT * FROM languages WHERE id=?", (world,)).fetchone()
@@ -125,20 +98,6 @@ def test_validators_catch_problems(world):
     errs = " ".join(V.validate(bad, attrs, L, S))
     assert "placeholder" in errs and "words_short" in errs and "numbers_not_allowed" in errs and "script_ratio" in errs
     assert "speakers" in " ".join(V.validate([{"s": "A", "t": "ಕ"}], attrs, L, S))
-
-
-def test_job_idempotent(world):
-    with db.tx() as c:
-        P.release_wave(c, world, 1, ADMIN)
-        P.release_wave(c, world, 1, ADMIN)
-    with db.ro() as c:
-        assert c.execute("SELECT COUNT(*) n, COUNT(DISTINCT script_id) d FROM jobs").fetchone()["n"] == c.execute("SELECT COUNT(DISTINCT script_id) FROM jobs").fetchone()[0]
-
-
-def test_wave_gate(world):
-    with db.tx() as c:
-        with pytest.raises(ValueError):
-            P.release_wave(c, world, 3, ADMIN)  # wave 2 not finished
 
 
 def test_only_approved_assignable_and_unique_under_concurrency(world):
@@ -279,17 +238,6 @@ def test_sweeper_releases_and_abandons(world):
         out = ops.sweep(c, time.time() + 80 * 3600)
         assert out["auto_released"] >= 1
         assert c.execute("SELECT status FROM assignments WHERE id=?", (made[0],)).fetchone()["status"] == "RELEASED"
-
-
-def test_stop_the_line(world):
-    topup(8, accept=False)
-    with db.tx() as c:
-        db.set_setting(c, "reject_stop_min", 5)
-        ids = [r["id"] for r in c.execute("SELECT id FROM scripts WHERE language_id=? AND status='IN_REVIEW' LIMIT 6", (world,))]
-        for i in ids:
-            P.review(c, i, ADMIN, "reject", "fluency")
-        assert db.setting(c, "pause_generation") == "1"
-        db.set_setting(c, "pause_generation", 0)
 
 
 def test_gender_matching_never_violated(world):

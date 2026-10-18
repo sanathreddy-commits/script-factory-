@@ -1339,46 +1339,6 @@ def sweep(c, now=None):
     return out
 
 
-def alerts(c):
-    S = db.S(c)
-    out = []
-    spent = c.execute("SELECT COALESCE(SUM(cost),0) x FROM jobs").fetchone()["x"]
-    cap = float(S["global_cap_inr"])
-    if spent >= 0.8 * cap:
-        out.append(("bad" if spent >= cap else "warn", f"Generation spend Rs {spent:,.0f} of Rs {cap:,.0f} cap"))
-    if S["pause_generation"] == "1":
-        out.append(("bad", "Generation is PAUSED (stop-the-line or manual)."))
-    for k in c.execute("SELECT * FROM api_keys WHERE status!='active' OR cool_until>?", (time.time(),)):
-        out.append(("warn", f"Key '{k['label']}' is {k['status'] if k['status'] != 'active' else 'cooling down'}"))
-    n = c.execute("SELECT COUNT(*) n FROM scripts WHERE status='NEEDS_HUMAN'").fetchone()["n"]
-    if n:
-        out.append(("warn", f"{n} scripts failed auto-repair (NEEDS_HUMAN)"))
-    n = c.execute("SELECT COUNT(*) n FROM scripts WHERE status='IN_REVIEW'").fetchone()["n"]
-    if n > 50:
-        out.append(("warn", f"Review backlog: {n} scripts"))
-    for L in c.execute("SELECT * FROM languages"):
-        stock = c.execute("SELECT COUNT(*) n FROM scripts s WHERE language_id=? AND status IN ('APPROVED','READY') AND NOT EXISTS (SELECT 1 FROM assignments a"
-                          " WHERE a.script_id=s.id AND a.status NOT IN ('RELEASED','ABANDONED','REJECTED'))", (L["id"],)).fetchone()["n"]
-        rate = c.execute("SELECT COUNT(*) n FROM assignments a JOIN scripts s ON s.id=a.script_id WHERE s.language_id=? AND a.assigned_at>?",
-                         (L["id"], time.time() - 7 * 86400)).fetchone()["n"] / 7
-        if L["planned"] and rate > 0 and stock / rate < 3:
-            out.append(("warn", f"{L['name']}: only {stock / rate:.1f} days of approved stock. Release the next wave."))
-        for p in c.execute("SELECT * FROM pairs WHERE language_id=? AND status='ACTIVE'", (L["id"],)):
-            used = pair_used(c, p["id"])
-            if used >= 0.8 * L["cap_pair_min"]:
-                out.append(("warn", f"{L['name']}: pair #{p['id']} at {100 * used / L['cap_pair_min']:.0f}% of hours cap"))
-            u1, u2 = pair_members(c, p)
-            if u1["device"] and u1["device"] == u2["device"]:
-                out.append(("bad", f"{L['name']}: pair #{p['id']} both partners use the same device"))
-    n = c.execute("SELECT COUNT(*) n FROM orphans WHERE status='OPEN'").fetchone()["n"]
-    if n:
-        out.append(("warn", f"{n} client sessions with no assignment (orphans)"))
-    n = c.execute("SELECT COUNT(*) n FROM issues WHERE status='OPEN' AND route='admin'").fetchone()["n"]
-    if n:
-        out.append(("warn", f"{n} open admin issues"))
-    return out
-
-
 # ---------------------------------------------------------------- stats
 def funnel(c, lang_id):
     d = {}
@@ -1424,7 +1384,7 @@ def mask(v):
     return v[:2] + "*" * max(0, len(v) - 4) + v[-2:] if len(v) > 4 else "*" * len(v)
 
 
-REPORTS = ["scripts", "people", "pairs", "assignments", "ledger", "generation_cost", "audit", "client_manifest", "payout"]
+REPORTS = ["scripts", "people", "pairs", "assignments", "ledger", "audit", "client_manifest", "payout"]
 
 
 def export(c, actor, name, lang_id=None, masked=True):
@@ -1463,10 +1423,6 @@ def export(c, actor, name, lang_id=None, masked=True):
         h = ["ts", "assignment", "user", "pair", "minutes", "kind"]
         rows = [[datetime.fromtimestamp(r["ts"]).isoformat(timespec="seconds"), r["assignment_id"], r["user_id"], r["pair_id"], r["minutes"], r["kind"]]
                 for r in c.execute("SELECT * FROM ledger ORDER BY id")]
-    elif name == "generation_cost":
-        h = ["script_id", "status", "attempts", "calls", "cost_inr", "error"]
-        rows = [[r["code"], r["status"], r["attempts"], r["calls"], round(r["cost"], 2), r["error"]] for r in c.execute(
-            "SELECT s.code, j.* FROM jobs j JOIN scripts s ON s.id=j.script_id " + lf, args)]
     elif name == "audit":
         _admin_only(actor)
         h = ["ts", "actor", "action", "detail"]

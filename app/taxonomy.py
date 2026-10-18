@@ -42,59 +42,6 @@ def spec_split(n=167):
         "Orthopedic": 8
     }
 
-def plan_language(c, lang_id, wave1_size=100, wave_size=250):
-    """Create PLANNED script slots for the given language based on the official taxonomy."""
-    try:
-        c.execute("DELETE FROM jobs WHERE script_id IN (SELECT id FROM scripts WHERE language_id=?)", (lang_id,))
-    except Exception:
-        pass
-    c.execute("DELETE FROM scripts WHERE language_id=?", (lang_id,))
-
-    attrs = json.dumps({"roles": ["A", "B"], "code_switch": "low", "opening": "greeting", "outcome": "resolved", "names": {"A": "Speaker A", "B": "Speaker B"}, "entities": {}, "genders": {"A": "M", "B": "F"}})
-
-    slots = []
-    for item in TAXONOMY_ITEMS:
-        for _ in range(int(item.get("quota", 0))):
-            slots.append(item)
-
-    unique_subs = []
-    for s in slots:
-        sub = s.get("subdomain", "")
-        if sub not in unique_subs:
-            unique_subs.append(sub)
-
-    sub_counts_w1 = {sub: 0 for sub in unique_subs}
-    target_per_sub_w1 = max(1, wave1_size // max(1, len(unique_subs)))
-
-    w1_slots, later_slots = [], []
-    for s in slots:
-        sub = s.get("subdomain", "")
-        if sub_counts_w1[sub] < target_per_sub_w1 and len(w1_slots) < wave1_size:
-            sub_counts_w1[sub] += 1
-            w1_slots.append(s)
-        else:
-            later_slots.append(s)
-
-    planned_items = [(s, 1) for s in w1_slots]
-    for i, s in enumerate(later_slots):
-        wave_num = 2 + (i // wave_size)
-        planned_items.append((s, wave_num))
-
-    now = time.time()
-    for seq, (item, wave) in enumerate(planned_items, 1):
-        code = "S%d%05d" % (lang_id, seq)
-        c.execute(
-            "INSERT INTO scripts(language_id, seq, code, domain, subdomain, specialisation, wave, status, attrs, brief, created_at, updated_at) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-            (lang_id, seq, code, item.get("domain", ""), item.get("subdomain", ""),
-             item.get("specialisation", ""), wave, "PLANNED", attrs, "", now, now),
-        )
-
-    c.execute("UPDATE languages SET planned=1, target=? WHERE id=?", (len(planned_items), lang_id))
-    count = c.execute("SELECT COUNT(*) FROM scripts WHERE language_id=?", (lang_id,)).fetchone()[0]
-    return count
-
-# Official taxonomy specification based on client targets
 TAXONOMY_ITEMS = [
     # Healthcare: Doctor-Patient Consultation (167 scripts total)
     {

@@ -1033,6 +1033,9 @@
     </button>
     <button type="submit" formaction="/admin/reports/export_csv" class="btn btn-secondary btn-sm">Export CSV</button>
     <span class="muted-text" style="font-size:11px;">Leave dates blank for all time.</span>
+    {% if user.role in ('admin', 'developer') %}
+    <a href="/admin/backup/full.zip" class="btn btn-secondary btn-sm" style="margin-left:auto;" title="Everything done so far: Excel report + raw data of every table, as one ZIP. No passwords or photos.">Download full backup (.zip)</a>
+    {% endif %}
   </form>
 
   <!-- KPI Summary Cards (Image 5 style: border-left 4px accent) -->

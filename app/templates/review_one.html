@@ -7,9 +7,6 @@
 <div class="grid g2" style="grid-template-columns:minmax(0,3fr) minmax(0,2fr)">
 <div>
   {% if s.status=='NEEDS_HUMAN' %}
-  <div class="card"><h2>Auto-repair failed</h2><p class="small mute">The system never keeps output that fails validators. Errors from the last attempt:</p>
-    <p><code>{{ job.error if job else '' }}</code></p>
-    <form method="post" action="/admin/script/{{ s.id }}/retry" style="display:inline"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn">Retry with a new seed</button></form></div>
   <div class="card"><h2>Write it by hand</h2><p class="small mute">One line per turn: <code>{{ attrs.roles[0] }}: …</code> / <code>{{ attrs.roles[1] }}: …</code>. Same validators apply.</p>
     <form method="post" action="/review/{{ s.id }}"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="verdict" value="manual">
       <textarea name="text" style="min-height:300px" required></textarea><button class="btn pri" style="margin-top:.6rem">Validate and submit for review</button></form></div>
@@ -23,7 +20,7 @@
         <button class="btn" name="verdict" value="fix">Fix and approve</button></div>
       <h3 style="margin-top:1rem">Reject</h3>
       <div class="row"><select name="reason" style="max-width:240px">{% for r in reasons %}<option>{{ r }}</option>{% endfor %}</select>
-        <button class="btn bad" name="verdict" value="reject">Reject and regenerate</button></div>
+        <button class="btn bad" name="verdict" value="reject">Reject</button></div>
     </form></div>
   {% endif %}
 </div>
