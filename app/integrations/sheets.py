@@ -462,137 +462,86 @@ def test_connection(c=None, **kwargs) -> Dict[str, Any]:
             }
 
 
+# ---- Sheet tabs mirror the web page tables -------------------------------------------------------------------
+# Each tab is built from the SAME data that renders Management > Agents / Pairs / Scripts / Reports (All languages),
+# so the sheet always matches what admins see. One page build is shared by all tabs of one sync (~0.5 MB of
+# database reads in total; the old Scripts tab alone read every script's full text, ~26 MB, one query per script).
+# Login access codes are deliberately NOT exported: anyone who can open the sheet could sign in as an agent.
+_PAGE_CTX = {}
+
+
+def _page_ctx(c):
+    from starlette.requests import Request
+    from ..routes_master import build_management_context
+    if "ctx" in _PAGE_CTX:          # inside one sync_all run: build once, share across the tabs
+        return _PAGE_CTX["ctx"]
+    req = Request({"type": "http", "method": "GET", "path": "/", "query_string": b"lang=all", "headers": []})
+    ctx = build_management_context(c, {"role": "admin", "id": 0, "name": "Sheets sync", "lang_ids": []}, req, "agents")
+    if _PAGE_CTX.get("on"):
+        _PAGE_CTX["ctx"] = ctx
+    return ctx
+
+
+def _hm(h):
+    m = int(round(float(h or 0) * 60))
+    if m <= 0:
+        return "0 h"
+    return f"{m} min" if m < 60 else f"{m // 60}h {m % 60:02d}m"
+
+
 def get_agents_roster_data(c) -> Tuple[List[str], List[List[Any]]]:
-    """
-    Extracts live Agents Roster data.
-    Columns: Name, Phone, Email, Language, Availability, Status, Paired Partner
-    """
-    headers = ["Name", "Phone", "Email", "Language", "Availability", "Status", "Paired Partner"]
+    """Management > Agents table (all languages), without access codes."""
+    headers = ["Sl No", "Name", "Language", "Phone", "Email", "Gender", "Availability", "Paired With",
+               "Assigned", "Completed", "Pending", "Recorded & Limit", "Accepted", "Status"]
     rows = []
-    agents = c.execute(
-        "SELECT u.*, l.name as lang_name FROM users u "
-        "LEFT JOIN languages l ON l.id=u.language_id "
-        "WHERE u.role='participant' ORDER BY u.language_id ASC, u.name ASC"
-    ).fetchall()
-
-    for ag in agents:
-        uid = ag["id"]
-        partner_name = "Unpaired"
-        p = c.execute("SELECT * FROM pairs WHERE status='ACTIVE' AND (a=? OR b=?)", (uid, uid)).fetchone()
-        if p:
-            part_id = p["b"] if p["a"] == uid else p["a"]
-            p_row = c.execute("SELECT name FROM users WHERE id=?", (part_id,)).fetchone()
-            if p_row:
-                partner_name = p_row["name"]
-
-        status_str = "Active" if ag["active"] else "Inactive"
-        rows.append([
-            ag["name"] or "-",
-            ag["phone"] or "-",
-            ag["email"] or "-",
-            ag["lang_name"] or "-",
-            ag["availability"] or "All day",
-            status_str,
-            partner_name,
-        ])
+    for i, a in enumerate(_page_ctx(c)["agents"], 1):
+        if not a.get("active"):
+            status = "Inactive"
+        elif (a.get("recorded_h") or 0) >= 15.0:
+            status = "Limit reached"
+        else:
+            status = "Active"
+        n = a.get("pair_count") or 0
+        paired = f"{n} {'pair' if n == 1 else 'pairs'}" + (f": {a.get('partners_tooltip')}" if a.get("partners_tooltip") else "")
+        rows.append([i, a["name"] or "-", a["lang_name"] or "-", a["phone"] or "-", a["email"] or "-", a["gender"] or "-",
+                     a["availability"] or "All day", paired, a["assigned_count"], a["completed_count"], a["pending_count"],
+                     f"{_hm(a['recorded_h'])} / 15 h", _hm(a["accepted_h"]), status])
     return headers, rows
 
 
 def get_pair_assignments_data(c) -> Tuple[List[str], List[List[Any]]]:
-    """
-    Extracts live Pair Assignments data.
-    Columns: Pair, Language, Assigned count, Completed count, Hours recorded
-    """
-    headers = ["Pair", "Language", "Assigned count", "Completed count", "Hours recorded"]
+    """Pairs & Assignment table (all languages, active pairs, as on the page)."""
+    headers = ["Sl No", "Agent A", "Agent A Recorded", "Agent B", "Agent B Recorded", "Language", "Availability",
+               "Assigned", "Completed", "Pending", "Recorded & Limit", "Accepted", "Status"]
     rows = []
-    pairs = c.execute(
-        "SELECT p.*, ua.name as name_a, ub.name as name_b, l.name as lang_name "
-        "FROM pairs p "
-        "JOIN users ua ON ua.id=p.a "
-        "JOIN users ub ON ub.id=p.b "
-        "JOIN languages l ON l.id=p.language_id "
-        "ORDER BY p.id ASC"
-    ).fetchall()
-
-    for p in pairs:
-        pid = p["id"]
-        a_cnt = c.execute(
-            "SELECT COUNT(*) n FROM assignments WHERE pair_id=? AND status NOT IN ('RELEASED','ABANDONED')",
-            (pid,)
-        ).fetchone()["n"]
-
-        c_cnt = c.execute(
-            "SELECT COUNT(*) n FROM assignments WHERE pair_id=? AND ("
-            "status IN ('SUBMITTED','COMPLETED','CONFIRMED','ACCEPTED') OR review_status IN ('APPROVED','ACCEPTED'))",
-            (pid,)
-        ).fetchone()["n"]
-
-        tot_m = c.execute(
-            "SELECT COALESCE(SUM(conf_min), 0.0) m FROM assignments WHERE pair_id=? "
-            "AND conf_min IS NOT NULL AND status NOT IN ('ASSIGNED','RELEASED','ABANDONED')",
-            (pid,)
-        ).fetchone()["m"]
-
-        tot_h = round(tot_m / 60.0, 1)
-        pair_label = f"Pair #{pid} ({p['name_a']} & {p['name_b']})"
-
-        rows.append([
-            pair_label,
-            p["lang_name"] or "-",
-            a_cnt,
-            c_cnt,
-            f"{tot_h} h",
-        ])
+    for i, p in enumerate(_page_ctx(c)["pairs"], 1):
+        rows.append([i, f"{p['agent_a_name']} ({p['agent_a_gender']})", f"{_hm(p.get('rec_a_h'))} / 15 h",
+                     f"{p['agent_b_name']} ({p['agent_b_gender']})", f"{_hm(p.get('rec_b_h'))} / 15 h",
+                     p.get("lang_name") or "-", p.get("availability") or "All day", p["assigned_count"],
+                     p["completed_count"], p["pending_count"], f"{_hm(p['recorded_h'])} / 7.5 h", _hm(p["accepted_h"]),
+                     "Limit reached" if p["status"] == "LIMIT_REACHED" else (p["status"] or "-").title()])
     return headers, rows
 
 
+_SCRIPT_STATUS = {"ACCEPTED": "Accepted", "APPROVED": "Accepted", "SUBMITTED": "Submitted", "COMPLETED": "Submitted",
+                  "ASSIGNED": "Assigned", "IN_SESSION": "Assigned", "REJECTED": "Rejected"}
+
+
 def get_scripts_master_data(c) -> Tuple[List[str], List[List[Any]]]:
-    """
-    Extracts live Scripts Master List data.
-    Columns: Code, Language, Domain, Subdomain, Status, Word Count
-    """
-    headers = ["Code", "Language", "Domain", "Subdomain", "Status", "Word Count"]
+    """Scripts table (all languages)."""
+    headers = ["Sl No", "Script Code", "Language", "Domain", "Sub-domain", "Specialisation", "Status", "Assigned Pair",
+               "Time", "Word Count"]
     rows = []
-    scripts = c.execute(
-        f"SELECT {db.SCRIPT_COLS}, l.name as lang_name FROM scripts s "
-        "JOIN languages l ON l.id=s.language_id "
-        "ORDER BY s.id ASC"
-    ).fetchall()
-
-    for sc in scripts:
-        asg = c.execute(
-            "SELECT a.status as a_stat, a.review_status "
-            "FROM assignments a "
-            "WHERE a.script_id=? AND a.status NOT IN ('RELEASED','ABANDONED') "
-            "ORDER BY a.id DESC LIMIT 1",
-            (sc["id"],)
-        ).fetchone()
-
-        if asg:
-            rev_stat = (asg["review_status"] or "").upper()
-            raw_stat = (asg["a_stat"] or "").upper()
-            if rev_stat in ("APPROVED", "ACCEPTED") or raw_stat in ("APPROVED", "ACCEPTED", "CONFIRMED"):
-                stat_disp = "ACCEPTED"
-            elif rev_stat == "REJECTED" or raw_stat == "REJECTED":
-                stat_disp = "REJECTED"
-            elif raw_stat in ("SUBMITTED", "COMPLETED"):
-                stat_disp = "SUBMITTED"
-            elif raw_stat in ("ASSIGNED", "IN_SESSION"):
-                stat_disp = "ASSIGNED"
-            else:
-                stat_disp = raw_stat or "ASSIGNED"
+    for i, s in enumerate(_page_ctx(c)["scripts"], 1):
+        if s.get("uid_a") and s.get("uid_b"):
+            pair = f"{s['name_a']} & {s['name_b']}"
+        elif s.get("pair_label") and s["pair_label"] != "-":
+            pair = s["pair_label"]
         else:
-            raw_sc_stat = (sc["status"] or "").upper()
-            stat_disp = "AVAILABLE" if raw_sc_stat in ("READY", "AVAILABLE", "APPROVED") else raw_sc_stat
-
-        rows.append([
-            sc["code"],
-            sc["lang_name"] or "-",
-            sc["domain"] or "-",
-            sc["subdomain"] or "-",
-            stat_disp,
-            sc["words"] or 0,
-        ])
+            pair = "-"
+        rows.append([i, s["code"], s["lang_name"] or "-", s["domain"] or "-", s["subdomain"] or "-",
+                     s.get("specialisation") or "-", _SCRIPT_STATUS.get(s["status"], "Available"), pair,
+                     s.get("time_taken") or "-", s.get("words") or 0])
     return headers, rows
 
 
@@ -787,28 +736,33 @@ def sync_scripts(c=None, **kwargs) -> Dict[str, Any]:
 
 
 def get_submissions_data(c) -> Tuple[List[str], List[List[Any]]]:
-    """Submissions with the proof photo shown INSIDE the cell via =IMAGE(url).
-    Google Sheets cannot receive image bytes through the values API and cannot send cookies when it fetches an image,
-    so each photo gets a long-lived signed Supabase URL (anyone holding that one link can view that one photo)."""
+    """Reports table with the proof photo shown INSIDE the cell via =IMAGE(url), plus a clickable link.
+    Photos come from Supabase Storage (Google Drive copies fail: service accounts have no Drive storage quota).
+    Google Sheets cannot send cookies when it fetches an image, so each photo gets a long-lived signed Supabase URL
+    (anyone holding that one link can view that one photo)."""
     from .. import storage
-    headers = ["Script Code", "Language", "Speaker A", "Speaker B", "Duration (mm:ss)", "Status", "Proof Photo", "Submitted At"]
+    headers = ["Sl No", "Script Code", "Agents", "Language", "Taxonomy", "Time Taken", "Proof Photo", "Photo Link",
+               "Status", "Reviewed By", "Note", "Submitted At"]
+    reports = _page_ctx(c)["reports"]
+    when = {}
+    ids = [r["id"] for r in reports]
+    for i in range(0, len(ids), 500):
+        part = ids[i:i + 500]
+        for r in c.execute(f"SELECT id, submitted_at FROM assignments WHERE id IN ({','.join('?' * len(part))})", tuple(part)).fetchall():
+            when[r["id"]] = r["submitted_at"]
     rows = []
-    q = ("SELECT a.id, a.conf_min, a.proof_img, a.submitted_at, a.review_status, a.status AS a_status, "
-         "s.code AS script_code, l.name AS lang_name, ua.name AS name_a, ub.name AS name_b "
-         "FROM assignments a JOIN scripts s ON s.id=a.script_id JOIN languages l ON l.id=s.language_id "
-         "LEFT JOIN users ua ON ua.id=a.ua LEFT JOIN users ub ON ub.id=a.ub "
-         "WHERE a.conf_min IS NOT NULL AND a.status NOT IN ('ASSIGNED','RELEASED','ABANDONED','IN_SESSION') ORDER BY a.id DESC")
-    for r in c.execute(q).fetchall():
-        mm, ss = divmod(int(round(float(r["conf_min"] or 0) * 60)), 60)
-        rev = (r["review_status"] or "").upper()
-        st = "ACCEPTED" if rev in ("APPROVED", "ACCEPTED") or r["a_status"] in ("ACCEPTED", "APPROVED") else (
-            "REJECTED" if rev == "REJECTED" or r["a_status"] == "REJECTED" else "SUBMITTED")
-        img = ""
+    for i, r in enumerate(reports, 1):
+        img = link = ""
         if r["proof_img"]:
             u = storage.signed_url(r["proof_img"])
             img = f'=IMAGE("{u}")' if u else "(photo not in cloud storage)"
-        when = time.strftime("%Y-%m-%d %H:%M", time.gmtime((r["submitted_at"] or 0) + 19800)) if r["submitted_at"] else "-"
-        rows.append([r["script_code"], r["lang_name"], r["name_a"] or "", r["name_b"] or "", f"{mm:02d}:{ss:02d}", st, img, when])
+            link = f'=HYPERLINK("{u}", "Open photo")' if u else ""
+        rs = (r["review_status"] or "").upper()
+        st = "Accepted" if rs in ("APPROVED", "ACCEPTED") else ("Rejected" if rs == "REJECTED" else "Submitted")
+        ts = when.get(r["id"])
+        rows.append([i, r["script_code"], f"{r['agent_a_name']} & {r['agent_b_name']}", r["lang_name"] or "-",
+                     r["taxonomy"], r["time_taken"], img, link, st, r["reviewed_by"] or "-", r["review_note"] or "",
+                     time.strftime("%Y-%m-%d %H:%M", time.gmtime(ts + 19800)) if ts else "-"])
     return headers, rows
 
 
@@ -940,7 +894,12 @@ def sync_all(c=None, **kwargs) -> Dict[str, Any]:
             "message": f"Successfully synchronized {res_agents.get('rows', 0)} agents, {res_assign.get('rows', 0)} pair assignments, and {res_scripts.get('rows', 0)} scripts to Google Sheets."
         }
 
-    if c is not None:
-        return _run(c)
-    with db.tx() as tx_c:
-        return _run(tx_c)
+    _PAGE_CTX.clear()
+    _PAGE_CTX["on"] = True
+    try:
+        if c is not None:
+            return _run(c)
+        with db.tx() as tx_c:
+            return _run(tx_c)
+    finally:
+        _PAGE_CTX.clear()

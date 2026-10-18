@@ -350,7 +350,7 @@ def generate_master_excel_report(c, lang_id=None) -> bytes:
         params_sc.append(lang_id)
 
     scripts = c.execute(
-        f"SELECT {db.SCRIPT_COLS}, l.name as lang_name FROM scripts s JOIN languages l ON l.id=s.language_id {where_sc} ORDER BY s.id DESC",
+        f"SELECT {db.SCRIPT_LIST_COLS}, l.name as lang_name FROM scripts s JOIN languages l ON l.id=s.language_id {where_sc} ORDER BY s.id DESC",
         params_sc
     ).fetchall()
 

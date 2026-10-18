@@ -162,6 +162,20 @@ def import_agents(c, actor, default_lang_id, csv_text: str) -> Dict:
     if not reader.fieldnames or "name" not in reader.fieldnames:
         res["errors"].append("Header row must contain a 'name' column (see the format on the page).")
         return res
+    # Runs every 15 minutes from the auto-sync. Read languages and existing agents once (was ~3 queries per row, each
+    # a network round trip to Supabase), and write only rows whose values actually change.
+    langs = {(r["name"] or "").lower(): r["id"] for r in c.execute("SELECT id, name FROM languages").fetchall()}
+    by_phone, by_email = {}, {}
+
+    def _remember(u):
+        if u["phone"]:
+            by_phone.setdefault((u["language_id"], u["phone"]), u)
+        if u["email"]:
+            by_email.setdefault((u["language_id"], u["email"]), u)
+
+    for u in c.execute("SELECT id, name, gender, availability, phone, email, language_id FROM users "
+                       "WHERE role='participant' ORDER BY id").fetchall():
+        _remember(dict(u))
     for i, row in enumerate(reader, start=2):
         name = (row.get("name") or "").strip()
         if not name:
@@ -174,28 +188,35 @@ def import_agents(c, actor, default_lang_id, csv_text: str) -> Dict:
         lid = default_lang_id if str(default_lang_id or "").isdigit() else None
         lname = (row.get("language") or "").strip()
         if lname:
-            lr = c.execute("SELECT id FROM languages WHERE lower(name)=lower(?)", (lname,)).fetchone()
-            lid = lr["id"] if lr else lid
+            lid = langs.get(lname.lower(), lid)
         if not lid:
             res["errors"].append(f"Row {i} ({name}): no language - choose a language or add a 'language' column.")
             continue
         if not phone and not email:
             res["errors"].append(f"Row {i} ({name}): needs a phone or an email.")
             continue
+        lid = int(lid)
         ex = None
         if phone:
-            ex = c.execute("SELECT id FROM users WHERE role='participant' AND language_id=? AND phone=?", (lid, phone)).fetchone()
+            ex = by_phone.get((lid, phone))
         if not ex and email:
-            ex = c.execute("SELECT id FROM users WHERE role='participant' AND language_id=? AND email=?", (lid, email)).fetchone()
+            ex = by_email.get((lid, email))
         try:
             if ex:
-                c.execute("UPDATE users SET name=?, gender=COALESCE(NULLIF(?,''),gender), availability=?, "
-                          "phone=COALESCE(NULLIF(?,''),phone), email=COALESCE(NULLIF(?,''),email) WHERE id=?",
-                          (name, gender, avail, phone, email, ex["id"]))
+                new = {"name": name, "gender": gender or ex["gender"], "availability": avail,
+                       "phone": phone or ex["phone"], "email": email or ex["email"]}
+                if any(new[k] != ex[k] for k in new):
+                    c.execute("UPDATE users SET name=?, gender=COALESCE(NULLIF(?,''),gender), availability=?, "
+                              "phone=COALESCE(NULLIF(?,''),phone), email=COALESCE(NULLIF(?,''),email) WHERE id=?",
+                              (name, gender, avail, phone, email, ex["id"]))
+                    ex.update(new)
+                    _remember(ex)
                 res["updated"] += 1
             else:
                 uid, _code = ops.create_user(c, actor, name, "participant", lid, phone=phone, email=email, gender=gender)
                 c.execute("UPDATE users SET availability=? WHERE id=?", (avail, uid))
+                _remember({"id": uid, "name": name, "gender": gender, "availability": avail, "phone": phone,
+                           "email": email, "language_id": lid})
                 res["created"] += 1
         except Exception as e:
             res["errors"].append(f"Row {i} ({name}): {e}")

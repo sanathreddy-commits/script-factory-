@@ -152,6 +152,11 @@ SCRIPT_COLS = ", ".join("s." + col for col in (
     "version", "words", "is_test", "source", "prompt_version", "spec_version", "judge", "needs_review",
     "reject_reason", "opening", "created_at", "updated_at"))
 
+# SCRIPT_COLS without attrs either. attrs holds the script's full raw text (~17 KB of UTF-8 per script), so listing
+# 1,500 scripts with it pulled ~26 MB from Supabase on every management page view. Use this for lists and
+# pickers; fetch attrs for one script only when its text or speaker genders are actually needed.
+SCRIPT_LIST_COLS = ", ".join(c for c in SCRIPT_COLS.split(", ") if c != "s.attrs")
+
 DEFAULTS = {
     "words_min": "1200", "words_max": "1500", "max_turn_words": "120", "sim_threshold": "0.15",
     "avg_minutes": "10", "open_limit": "5", "sitting": "3", "deadline_hours": "72", "abandon_hours": "6",
@@ -190,6 +195,20 @@ def connect():
 # block it runs inside, so a value written mid-request is never served stale.
 _READ_CACHE = contextvars.ContextVar("sf_read_cache", default=None)
 
+# Shared settings cache across requests. Every page needs the settings table (~6 KB), and re-reading it on every
+# request cost ~1 GB+ a month of Supabase egress for data that changes a few times a day. Freshness:
+#  - any write transaction in this process drops it (settings are written from many places with raw SQL, so we
+#    do not try to guess which writes touch it), so a saved setting shows on the very next request;
+#  - it also expires after SETTINGS_TTL seconds (60), which bounds staleness if a second server shares the database;
+#  - it is keyed by the database it came from, so switching databases (tests, local runs) never mixes values.
+SETTINGS_TTL = 60.0
+_SETTINGS_SHARED = {"key": None, "at": 0.0, "rows": None}
+_IN_TX = contextvars.ContextVar("sf_in_tx", default=False)   # write transactions always read settings fresh
+
+
+def drop_shared_cache():
+    _SETTINGS_SHARED["rows"] = None
+
 
 def read_cache():
     """The current read block's scratch dict, or None inside a write transaction / outside ro()."""
@@ -201,6 +220,7 @@ def tx():
     """Write transaction. Never nest: open one, pass `c` down."""
     outer = _READ_CACHE.get()
     token = _READ_CACHE.set(None)
+    tx_token = _IN_TX.set(True)
     c = connect()
     try:
         c.execute("BEGIN IMMEDIATE")
@@ -215,6 +235,8 @@ def tx():
     finally:
         c.close()
         _READ_CACHE.reset(token)
+        _IN_TX.reset(tx_token)
+        drop_shared_cache()
         if outer is not None:
             outer.clear()
 
@@ -282,13 +304,22 @@ def init_db():
     except Exception:
         pass
     c.close()
+    drop_shared_cache()
 
 
 def _settings_rows(c):
     cache = _READ_CACHE.get()
     if cache is not None and "settings" in cache:
         return cache["settings"]
-    rows = {r["k"]: r["v"] for r in c.execute("SELECT k,v FROM settings")}
+    key = config.postgres_dsn() or config.db_path()
+    sh = _SETTINGS_SHARED
+    if _IN_TX.get():
+        return {r["k"]: r["v"] for r in c.execute("SELECT k,v FROM settings")}
+    if sh["rows"] is not None and sh["key"] == key and time.time() - sh["at"] < SETTINGS_TTL:
+        rows = sh["rows"]
+    else:
+        rows = {r["k"]: r["v"] for r in c.execute("SELECT k,v FROM settings")}
+        sh.update(key=key, at=time.time(), rows=rows)
     if cache is not None:
         cache["settings"] = rows
     return rows
@@ -310,6 +341,7 @@ def setting(c, k, default=None):
 
 def set_setting(c, k, v):
     c.execute("INSERT INTO settings(k,v) VALUES(?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v", (k, str(v)))
+    drop_shared_cache()
     cache = _READ_CACHE.get()
     if cache is not None:
         cache.pop("settings", None)

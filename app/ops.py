@@ -9,7 +9,7 @@ import time
 import zipfile
 from datetime import datetime
 
-from . import codes, db
+from . import codes, config, db
 from . import pipeline as P
 from . import validators as V
 
@@ -1006,9 +1006,32 @@ def assign_fair(c, actor, pair_ids, per_pair, override=False, reason=""):
     return total, got, notes
 
 
+# {(script id, version, updated_at): {"genders": ...} or None}. pick_script used to load every available script's
+# attrs (full raw text, ~17 KB each) once per script handed out: assigning 5 scripts to 40 pairs pulled several GB
+# from Supabase. Now attrs is read for one candidate at a time, and only the speaker genders are kept. The key
+# includes version and updated_at, so a re-uploaded or edited script is always re-read (never a stale answer).
+_GENDERS_CACHE = {}
+
+
+def _script_genders(c, r):
+    key = (config.postgres_dsn() or config.db_path(), r["id"], r["code"], r["version"], r["updated_at"])
+    if key not in _GENDERS_CACHE:
+        row = c.execute("SELECT attrs FROM scripts WHERE id=?", (r["id"],)).fetchone()
+        attrs = None
+        if row and row["attrs"]:
+            try:
+                attrs = json.loads(row["attrs"])
+            except Exception:
+                pass
+        if len(_GENDERS_CACHE) > 20000:
+            _GENDERS_CACHE.clear()
+        _GENDERS_CACHE[key] = {"genders": attrs["genders"]} if isinstance(attrs, dict) and "genders" in attrs else None
+    return _GENDERS_CACHE[key]
+
+
 def pick_script(c, L, pair, u1, u2, allow_test, only, only_script=None):
     rows = c.execute(
-        f"SELECT {db.SCRIPT_COLS} FROM scripts s WHERE s.language_id=? AND s.status IN ('APPROVED','READY') AND (s.is_test=0 OR ?=1) AND NOT EXISTS"
+        "SELECT s.id, s.code, s.version, s.updated_at, s.subdomain, s.specialisation FROM scripts s WHERE s.language_id=? AND s.status IN ('APPROVED','READY') AND (s.is_test=0 OR ?=1) AND NOT EXISTS"
         " (SELECT 1 FROM assignments a WHERE a.script_id=s.id AND a.status NOT IN ('RELEASED','ABANDONED','REJECTED')) ORDER BY s.seq",
         (L["id"], allow_test)).fetchall()
     if only_script is not None:
@@ -1034,12 +1057,7 @@ def pick_script(c, L, pair, u1, u2, allow_test, only, only_script=None):
     for g in sorted(groups, key=lambda g: (used_count.get(g, 0) / max(1, tot.get(g, 1)), g)):
         cands = groups[g]
         for r in cands:
-            attrs = None
-            if r["attrs"]:
-                try:
-                    attrs = json.loads(r["attrs"])
-                except Exception:
-                    pass
+            attrs = _script_genders(c, r)
             if attrs and "genders" in attrs:
                 m = role_map(attrs, u1, u2, last_ua)
                 if m:
@@ -1077,7 +1095,7 @@ def release_assignment(c, actor, aid, why="released by lead"):
 
 # ---------------------------------------------------------------- session flow
 def _mine(c, uid, aid):
-    a = c.execute("SELECT a.*, s.code, s.attrs, s.subdomain, s.specialisation, s.language_id lang FROM assignments a"
+    a = c.execute("SELECT a.*, s.code, s.subdomain, s.specialisation, s.language_id lang FROM assignments a"
                   " JOIN scripts s ON s.id=a.script_id WHERE a.id=?", (aid,)).fetchone()
     if not a:
         raise PermissionError("not your assignment")
@@ -1313,11 +1331,31 @@ def qc_csv(c, actor, text):
 
 
 # ---------------------------------------------------------------- watchdogs
-def sweep(c, now=None):
+# The sweeper runs every minute, day and night. It used to load every ASSIGNED assignment in full each time
+# (~24 KB a minute, ~1 GB a month of Supabase egress with nobody using the app). The queries below return only
+# the rows that need action now (past deadline, due a nudge, abandoned); the Python checks are unchanged.
+_SWEEP_ASSIGNED = ("SELECT id, script_id, deadline, assigned_at, nudged FROM assignments WHERE status='ASSIGNED'"
+                   " AND (deadline < ? OR (COALESCE(nudged, 0)=0 AND ? > assigned_at + (deadline - assigned_at) / 2.0))")
+
+
+def sweep_has_work(c, now=None, S=None):
+    """Cheap read-only check (a few bytes) so the sweeper opens a write transaction only when needed."""
     now = now or time.time()
-    S = db.S(c)
+    S = S or db.S(c)
+    if c.execute(_SWEEP_ASSIGNED + " LIMIT 1", (now, now)).fetchone():
+        return True
+    if c.execute("SELECT 1 FROM assignments WHERE status='IN_SESSION' AND started_at<? LIMIT 1",
+                 (now - float(S["abandon_hours"]) * 3600,)).fetchone():
+        return True
+    return S["verification_mode"] == "client_log" and bool(c.execute(
+        "SELECT 1 FROM assignments WHERE status='SELF_REPORTED' AND updated_at<? LIMIT 1", (now - 48 * 3600,)).fetchone())
+
+
+def sweep(c, now=None, S=None):
+    now = now or time.time()
+    S = S or db.S(c)
     out = dict(nudged=0, auto_released=0, abandoned=0, disputed=0)
-    for a in c.execute("SELECT * FROM assignments WHERE status='ASSIGNED'").fetchall():
+    for a in c.execute(_SWEEP_ASSIGNED, (now, now)).fetchall():
         if a["deadline"] < now:
             c.execute("UPDATE assignments SET status='RELEASED', note='auto-released at deadline', updated_at=? WHERE id=?", (now, a["id"]))
             c.execute("UPDATE scripts SET status='READY', updated_at=? WHERE id=?", (now, a["script_id"]))
@@ -1325,12 +1363,12 @@ def sweep(c, now=None):
         elif not a["nudged"] and now > a["assigned_at"] + (a["deadline"] - a["assigned_at"]) / 2:
             c.execute("UPDATE assignments SET nudged=1 WHERE id=?", (a["id"],))
             out["nudged"] += 1
-    for a in c.execute("SELECT * FROM assignments WHERE status='IN_SESSION' AND started_at<?", (now - float(S["abandon_hours"]) * 3600,)).fetchall():
+    for a in c.execute("SELECT id, script_id FROM assignments WHERE status='IN_SESSION' AND started_at<?", (now - float(S["abandon_hours"]) * 3600,)).fetchall():
         c.execute("UPDATE assignments SET status='ABANDONED', note='no Done after limit', updated_at=? WHERE id=?", (now, a["id"]))
         c.execute("UPDATE scripts SET status='READY', updated_at=? WHERE id=?", (now, a["script_id"]))
         out["abandoned"] += 1
     if S["verification_mode"] == "client_log":
-        for a in c.execute("SELECT * FROM assignments WHERE status='SELF_REPORTED' AND updated_at<?", (now - 48 * 3600,)).fetchall():
+        for a in c.execute("SELECT id FROM assignments WHERE status='SELF_REPORTED' AND updated_at<?", (now - 48 * 3600,)).fetchall():
             c.execute("UPDATE assignments SET status='DISPUTED', note='no client match after 48h', updated_at=? WHERE id=?", (now, a["id"]))
             _issue(c, a["id"], None, a_lang(c, a["id"]), "unmatched_self_report", "no client session found", "lead")
             out["disputed"] += 1

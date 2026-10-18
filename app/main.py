@@ -14,6 +14,7 @@ import traceback
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.gzip import GZipMiddleware
 from fastapi.templating import Jinja2Templates
 
 from . import admin_ops, codes, config, db, importers, ops, storage, sync
@@ -44,8 +45,13 @@ def sweeper():
     last_backup = 0
     while not P.Stop.event.is_set():
         try:
-            with db.tx() as c:
-                ops.sweep(c)
+            # Read-only check first: a write transaction every minute also threw away the shared settings cache.
+            with db.ro() as r:
+                S = db.S(r)
+                due = ops.sweep_has_work(r, S=S)
+            if due:
+                with db.tx() as c:
+                    ops.sweep(c, S=S)
             if time.time() - last_backup > 86400:
                 backup_db()
                 last_backup = time.time()
@@ -175,6 +181,12 @@ async def _cache_headers(request: Request, call_next):
     elif request.url.path.startswith("/static/"):
         resp.headers["Cache-Control"] = "public, max-age=31536000, immutable" if "v" in request.query_params else "no-cache"
     return resp
+
+
+# Compress responses for the browser. Pages are repetitive HTML (the "All languages" Scripts page is ~3.7 MB raw,
+# ~160 KB gzipped), and Render's free plan counts every byte sent, so this alone cuts its bandwidth ~10-20x.
+# The browser unzips transparently; nothing on the page changes.
+app.add_middleware(GZipMiddleware, minimum_size=500, compresslevel=6)
 
 from . import routes_master
 app.include_router(routes_master.router)
@@ -747,16 +759,13 @@ async def assignment_page(request: Request, aid: int):
             a, w = ops._mine(c, u["id"], aid)
         except PermissionError:
             raise HTTPException(404, "Not found")
-        s = c.execute("SELECT * FROM scripts WHERE id=?", (a["script_id"],)).fetchone()
+        # No s.* (fingerprint + full text) and no script_versions.turns (it was loaded but never shown).
+        s = c.execute(f"SELECT {db.SCRIPT_LIST_COLS} FROM scripts s WHERE s.id=?", (a["script_id"],)).fetchone()
         L = c.execute("SELECT * FROM languages WHERE id=?", (s["language_id"],)).fetchone()
-        v = c.execute("SELECT turns FROM script_versions WHERE script_id=? AND version=?", (s["id"], a["version"])).fetchone()
-        if not v or not v["turns"]:
-            v = c.execute("SELECT turns FROM script_versions WHERE script_id=? ORDER BY version DESC LIMIT 1", (s["id"],)).fetchone()
         S = db.S(c)
-        try:
-            attrs = json.loads(s["attrs"]) if s["attrs"] else {}
-        except Exception:
-            attrs = {}
+        # Text + attrs come from the version-stamped cache (re-read only when the script changes).
+        from .routes_master import script_text_and_attrs
+        full_script_text, attrs = script_text_and_attrs(c, s["id"], s["code"])
         if not attrs.get("roles"):
             attrs["roles"] = ["Speaker 1", "Speaker 2"]
         if not attrs.get("names"):
@@ -771,15 +780,7 @@ async def assignment_page(request: Request, aid: int):
         partner = c.execute("SELECT name FROM users WHERE id=?", (partner_id,)).fetchone()
         url = (S["client_url"] or "").replace("{script_id}", s["code"]).replace("{session}", f"{aid}")
         
-        from .routes_master import get_script_content_text
-        full_script_text = get_script_content_text(c, s["id"], s["code"])
         raw_script_text = full_script_text
-        raw_turns = []
-        if v and v["turns"]:
-            try:
-                raw_turns = json.loads(v["turns"])
-            except Exception:
-                raw_turns = [{"role": "Speaker", "text": v["turns"]}]
 
         clean_text = full_script_text.strip()
         if clean_text.startswith("```markdown"):

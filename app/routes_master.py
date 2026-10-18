@@ -434,9 +434,10 @@ async def agent_submit_post(request: Request, aid: int):
         content = await photo_file.read()
         if len(content) > 12 * 1024 * 1024:
             return back(f"/agent/script/{aid}", e="Photo is larger than 12 MB.")
-        # Compress captured photo to ~100 KB JPEG before storing (saves storage + bandwidth).
-        content = storage.compress_image(content, max_bytes=100 * 1024)
-        photo_name = f"proof_{aid}_{int(time.time())}.jpg"
+        # Compress to <= 50 KB WEBP before storing: same readable screenshot at half the old JPEG size, so the
+        # 1 GB free Supabase Storage holds ~20,000 proofs and each view costs half the bandwidth.
+        content = storage.compress_image(content, max_bytes=50 * 1024, fmt="WEBP")
+        photo_name = f"proof_{aid}_{int(time.time())}{storage.image_ext(content)}"
         # Safety copy -> Supabase Storage (+ local cache). Primary copy -> Google Drive (if configured).
         durable, note = storage.save_proof(photo_name, content)
         problems = []
@@ -476,8 +477,79 @@ async def agent_submit_post(request: Request, aid: int):
 
 def get_script_content_text(c, script_id: int, script_code: str = "") -> str:
     """Returns the complete, raw script text exactly as in the original .txt file, preserving all header lines, metadata, formatting, and dialogue roles without truncation."""
+    return script_text_and_attrs(c, script_id, script_code)[0]
+
+
+# Script text cache. Agents re-open the same script many times, and each open re-read its full text (~23 KB) from
+# Supabase. Freshness check: a tiny "version stamp" query (id, code, version, updated_at; ~60 bytes) runs every
+# time, and the cached text is used only when the stamp matches, so an edited or re-uploaded script is re-read at
+# once. TTL bounds the rare case of text that lives in a file on disk rather than in the database.
+_TEXT_CACHE = {}
+TEXT_TTL = 600.0
+
+
+def script_text_and_attrs(c, script_id, script_code=""):
+    """(full script text, parsed attrs without raw_text). Same text as before, served from cache when unchanged."""
+    m = c.execute("SELECT id, code, version, updated_at FROM scripts WHERE id=?", (script_id,)).fetchone()
+    if not m:
+        return _script_text(c, None, script_id, script_code), {}
+    key = (config.postgres_dsn() or config.db_path(), m["id"], m["code"], m["version"], m["updated_at"], script_code)
+    hit = _TEXT_CACHE.get(key)
+    if hit and time.time() - hit[0] < TEXT_TTL:
+        return hit[1], json.loads(hit[2])
     s = c.execute("SELECT id, code, attrs, brief, language_id FROM scripts WHERE id=?", (script_id,)).fetchone()
-    return _script_text(c, s, script_id, script_code)
+    text = _script_text(c, s, script_id, script_code)
+    _store_text(key, s, text)
+    return text, json.loads(_TEXT_CACHE[key][2])
+
+
+def _store_text(key, s, text):
+    try:
+        attrs = json.loads(s["attrs"]) if s and s["attrs"] else {}
+    except Exception:
+        attrs = {}
+    if not isinstance(attrs, dict):
+        attrs = {}
+    attrs.pop("raw_text", None)
+    if len(_TEXT_CACHE) > 3000:
+        _TEXT_CACHE.clear()
+    _TEXT_CACHE[key] = (time.time(), text, json.dumps(attrs))
+
+
+def script_texts_cached(c, items):
+    """{script_id: text} for many (script_id, code) at once, through the same version-stamped cache.
+    One stamp query for all; unchanged scripts cost nothing more, the rest are read in one batch."""
+    want = list(dict.fromkeys((i, code) for i, code in items if i is not None))
+    dsn = config.postgres_dsn() or config.db_path()
+    stamps = {}
+    for part in ops._chunks(list(dict.fromkeys(i for i, _ in want))):
+        ph = ",".join("?" * len(part))
+        for m in c.execute(f"SELECT id, code, version, updated_at FROM scripts WHERE id IN ({ph})", tuple(part)).fetchall():
+            stamps[m["id"]] = m
+    out, miss = {}, []
+    now = time.time()
+    for i, code in want:
+        m = stamps.get(i)
+        if not m:
+            out[i] = get_script_content_text(c, i, code)
+            continue
+        key = (dsn, m["id"], m["code"], m["version"], m["updated_at"], code)
+        hit = _TEXT_CACHE.get(key)
+        if hit and now - hit[0] < TEXT_TTL:
+            out[i] = hit[1]
+        else:
+            miss.append((i, code, key))
+    rows = {}
+    for part in ops._chunks(list(dict.fromkeys(i for i, _, _ in miss))):
+        ph = ",".join("?" * len(part))
+        for r in c.execute(f"SELECT id, code, attrs, brief, language_id FROM scripts WHERE id IN ({ph})", tuple(part)).fetchall():
+            rows[r["id"]] = r
+    for i, code, key in miss:
+        # latest_version=None: old versions are read only for a script whose text is not in attrs (rare).
+        text = _script_text(c, rows.get(i), i, code)
+        _store_text(key, rows.get(i), text)
+        out[i] = text
+    return out
 
 
 def _rows_by_id(c, table, ids):
@@ -1123,7 +1195,8 @@ def build_management_context(c, u, request: Request, active_tab: str = "agents")
     }
 
     scripts_raw = c.execute(
-        f"SELECT {db.SCRIPT_COLS}, l.name as lang_name FROM scripts s JOIN languages l ON l.id=s.language_id "
+        "SELECT s.id, s.language_id, s.code, s.domain, s.subdomain, s.specialisation, s.words, s.status, "   # only what the list shows
+        "l.name as lang_name FROM scripts s JOIN languages l ON l.id=s.language_id "
         "WHERE s.language_id IN (SELECT id FROM _sel) ORDER BY s.id DESC",
         ()
     ).fetchall()
@@ -2749,10 +2822,11 @@ async def pair_scripts_get(request: Request, pid: int):
         ).fetchall()
 
         scripts_data = []
+        texts = script_texts_cached(c, [(a["script_id"], a["code"]) for a in assignments])
         for a in assignments:
             m, s = divmod(int(round(float(a["conf_min"] or 0) * 60)), 60)
             time_disp = f"{m:02d}:{s:02d}" if a["conf_min"] else "-"
-            dialogue = get_script_content_text(c, a["script_id"], a["code"])
+            dialogue = texts[a["script_id"]]
 
             rev_stat = (a["review_status"] or "").upper()
             raw_stat = (a["status"] or "").upper()
