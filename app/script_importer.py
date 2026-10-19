@@ -778,6 +778,9 @@ def main():
     parser.add_argument("--status", default="READY", help="Script status (default: READY)")
     parser.add_argument("--db", default=None, help="Database path override (optional)")
     args = parser.parse_args()
+    if (os.environ.get("SF_REDIRECT_TO") or "").strip():
+        print("[Importer] Redirect-only mode (SF_REDIRECT_TO is set): nothing to import.")
+        return
 
     if args.db:
         os.environ["SF_DB"] = args.db

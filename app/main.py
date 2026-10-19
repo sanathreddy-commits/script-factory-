@@ -92,8 +92,18 @@ def backup_db():
     src.close()
 
 
+def redirect_target():
+    """SF_REDIRECT_TO=https://new-site: this copy only forwards visitors there (after a move to a new host)."""
+    return (os.environ.get("SF_REDIRECT_TO") or "").strip().rstrip("/")
+
+
 @asynccontextmanager
 async def lifespan(app):
+    if redirect_target():
+        # Redirect-only mode: no database, no background jobs, nothing else starts.
+        print(f"[Redirect] Forwarding every request to {redirect_target()}")
+        yield
+        return
     pg = config.using_postgres()
     if not pg:
         db_file = config.db_path()
@@ -171,6 +181,19 @@ def _asset_version():
 
 
 templates.env.globals["asset_v"] = _asset_version()
+
+
+@app.middleware("http")
+async def _redirect_to_new_site(request: Request, call_next):
+    """Old address after a move: send every page (same path and query, so links with login codes keep working)
+    to the new site. Off unless SF_REDIRECT_TO is set."""
+    target = redirect_target()
+    if not target:
+        return await call_next(request)
+    if request.url.path == "/healthz":
+        return Response("ok", media_type="text/plain")
+    url = target + request.url.path + (("?" + request.url.query) if request.url.query else "")
+    return RedirectResponse(url, 307 if request.method != "GET" else 302)
 
 
 @app.middleware("http")
